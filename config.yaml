@@ -8,7 +8,6 @@ watchlist:
   # Mega Cap Tech
   - AAPL   # Apple
   - MSFT   # Microsoft
-  - GOOGL  # Alphabet
   - AMZN   # Amazon
   - NVDA   # NVIDIA
   - META   # Meta Platforms
@@ -19,9 +18,6 @@ watchlist:
   - COIN   # Coinbase
   - MARA   # Marathon Digital (crypto)
   - RIOT   # Riot Platforms (crypto)
-  - PLTR   # Palantir
-  - SOFI   # SoFi Technologies
-  - RIVN   # Rivian
   - LCID   # Lucid Motors
   
   # Semiconductors
@@ -35,7 +31,6 @@ watchlist:
   - NFLX   # Netflix
   - CRM    # Salesforce
   - UBER   # Uber
-  - SQ     # Block (Square)
   - SHOP   # Shopify
   - SNOW   # Snowflake
   - CRWD   # CrowdStrike
@@ -239,17 +234,29 @@ reports:
 # ═══════════════════════════════════════════════════════════
 ml:
   enabled: true                  # Master switch for AI features
+  backend: "sklearn"             # Lightweight mode (runs on 2GB RAM)
   
-  # AI Price Prediction (Amazon Chronos)
+  # sklearn Price Prediction (GradientBoosting)
   price_prediction:
-    model: "amazon/chronos-t5-small"  # 46M params, runs on CPU
+    model: "gradient_boosting"        # sklearn GradientBoostingRegressor
     weight: 0.30                      # Weight in ensemble (30%)
     prediction_days: 5                # Days to predict ahead
-    lookback_days: 60                 # Historical days for context
+    lookback_days: 180                # Historical days for training
+    features:
+      - rsi
+      - macd
+      - bb_position
+      - volume_ratio
+      - sma_slope
+      - momentum
     
-  # Financial Sentiment Analysis
+  # Sentiment Analysis (VADER - lightweight)
   sentiment:
-    model: "mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis"
-    weight: 0.20                      # Weight in ensemble (20%)
+    engine: "vader"                   # VADER sentiment (no GPU needed)
+    weight: 0.15                      # Weight in ensemble (15%)
     min_headlines: 3                  # Minimum headlines required
     news_days: 3                      # Days of news to fetch
+  
+  # Pattern Recognition (KMeans clustering)
+  patterns:
+    weight: 0.15                      # Weight in ensemble (15%)

@@ -47,6 +47,7 @@ try:
     from ml.ensemble import MLEnsemble
     from ml.price_predictor import PricePredictor
     from ml.sentiment import SentimentAnalyzer
+    from ml.patterns import PatternRecognizer
     ML_AVAILABLE = True
 except ImportError:
     ML_AVAILABLE = False
@@ -1044,14 +1045,13 @@ def cmd_events(config: Dict, args: argparse.Namespace) -> int:
 def cmd_predict(config: Dict, args: argparse.Namespace) -> int:
     """AI price prediction for a ticker."""
     ticker = args.ticker.upper()
-    print(f"\n{Fore.CYAN}🤖 AI Price Prediction: {ticker}{Style.RESET_ALL}\n")
+    print(f"\n{Fore.CYAN}🤖 ML Price Prediction: {ticker}{Style.RESET_ALL}\n")
     
     if not ML_AVAILABLE:
         print(f"{Fore.YELLOW}⚠️ ML features not available. Install with:{Style.RESET_ALL}")
-        print(f"   pip install chronos-forecasting transformers torch")
+        print(f"   pip install scikit-learn vaderSentiment joblib")
         return 1
     
-    # Check if ML is enabled in config
     if not config.get('ml', {}).get('enabled', True):
         print(f"{Fore.YELLOW}⚠️ ML features disabled in config.yaml{Style.RESET_ALL}")
         return 1
@@ -1059,24 +1059,22 @@ def cmd_predict(config: Dict, args: argparse.Namespace) -> int:
     fetcher = DataFetcher()
     predictor = PricePredictor(config)
     
-    # Check model status
-    status = predictor.get_status()
-    if not status['loaded']:
-        print(f"{Fore.YELLOW}⚠️ Chronos model not loaded: {status.get('error', 'Unknown error')}{Style.RESET_ALL}")
-        print(f"   Using momentum-based fallback prediction\n")
-    else:
-        print(f"  Model: {Fore.GREEN}{status['model']}{Style.RESET_ALL}")
-        print()
+    print(f"  Backend: {Fore.GREEN}sklearn (GradientBoosting){Style.RESET_ALL}")
+    print()
     
     # Fetch data
     print(f"  Fetching {ticker} data...", end=" ", flush=True)
-    data = fetcher.get_stock_data(ticker, period="6mo")
+    data = fetcher.get_stock_data(ticker, period="1y")
     if data is None:
         print(f"{Fore.RED}Failed{Style.RESET_ALL}")
         return 1
+    print(f"{Fore.GREEN}Done ({len(data)} days){Style.RESET_ALL}")
+    
+    # Train and predict
+    print(f"  Training model...", end=" ", flush=True)
+    predictor.train(ticker, data)
     print(f"{Fore.GREEN}Done{Style.RESET_ALL}\n")
     
-    # Get prediction
     prediction = predictor.predict(ticker, data)
     
     if prediction is None:
@@ -1088,7 +1086,6 @@ def cmd_predict(config: Dict, args: argparse.Namespace) -> int:
     print(f"  Current Price: {format_currency(prediction.current_price)}")
     print()
     
-    # Direction with color
     if prediction.direction == "UP":
         dir_color = Fore.GREEN
         dir_emoji = "📈"
@@ -1101,15 +1098,14 @@ def cmd_predict(config: Dict, args: argparse.Namespace) -> int:
     
     print(f"  {dir_emoji} Predicted Direction: {dir_color}{prediction.direction}{Style.RESET_ALL}")
     print(f"  Expected Change: {dir_color}{prediction.predicted_change_pct:+.2f}%{Style.RESET_ALL}")
+    print(f"  Confidence: {prediction.confidence_score:.0f}%")
     print()
     
-    # Confidence interval
-    print(f"  Confidence Interval (80%):")
+    print(f"  Confidence Interval:")
     print(f"    Low:  {prediction.confidence_low:+.2f}%")
     print(f"    High: {prediction.confidence_high:+.2f}%")
     print()
     
-    # Daily predictions
     if len(prediction.predicted_prices) > 1:
         print(f"  {Fore.CYAN}Daily Predictions:{Style.RESET_ALL}")
         for i, price in enumerate(prediction.predicted_prices, 1):
@@ -1118,10 +1114,9 @@ def cmd_predict(config: Dict, args: argparse.Namespace) -> int:
             print(f"    Day {i}: {format_currency(price)} ({c}{change:+.2f}%{Style.RESET_ALL})")
         print()
     
-    # Model status note
     if not prediction.model_available:
         print(f"  {Fore.YELLOW}ℹ️ Using fallback (momentum-based) prediction{Style.RESET_ALL}")
-        print(f"     Install Chronos for AI-powered predictions")
+        print(f"     Run 'python main.py train' to train ML models")
     
     print(f"{Fore.CYAN}{'═' * 50}{Style.RESET_ALL}\n")
     return 0
@@ -1134,26 +1129,23 @@ def cmd_sentiment(config: Dict, args: argparse.Namespace) -> int:
     
     if not ML_AVAILABLE:
         print(f"{Fore.YELLOW}⚠️ ML features not available. Install with:{Style.RESET_ALL}")
-        print(f"   pip install transformers torch")
+        print(f"   pip install vaderSentiment")
         return 1
     
-    # Check if ML is enabled in config
     if not config.get('ml', {}).get('enabled', True):
         print(f"{Fore.YELLOW}⚠️ ML features disabled in config.yaml{Style.RESET_ALL}")
         return 1
     
     analyzer = SentimentAnalyzer(config)
     
-    # Check model status
     status = analyzer.get_status()
     if not status['loaded']:
-        print(f"{Fore.YELLOW}⚠️ Sentiment model not loaded: {status.get('error', 'Unknown error')}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}⚠️ VADER not loaded: {status.get('error', 'Unknown error')}{Style.RESET_ALL}")
         print(f"   Using keyword-based fallback analysis\n")
     else:
-        print(f"  Model: {Fore.GREEN}DistilRoBERTa Financial{Style.RESET_ALL}")
+        print(f"  Engine: {Fore.GREEN}VADER (with financial lexicon){Style.RESET_ALL}")
         print()
     
-    # Fetch and analyze
     print(f"  Fetching news for {ticker}...", end=" ", flush=True)
     sentiment = analyzer.analyze_ticker(ticker)
     
@@ -1162,10 +1154,8 @@ def cmd_sentiment(config: Dict, args: argparse.Namespace) -> int:
         return 1
     print(f"{Fore.GREEN}Found {sentiment.headline_count} headlines{Style.RESET_ALL}\n")
     
-    # Display results
     print(f"{Fore.CYAN}{'═' * 60}{Style.RESET_ALL}")
     
-    # Overall sentiment
     emoji = sentiment.get_emoji()
     if sentiment.sentiment_label == "BULLISH":
         label_color = Fore.GREEN
@@ -1178,13 +1168,11 @@ def cmd_sentiment(config: Dict, args: argparse.Namespace) -> int:
     print(f"  Score: {sentiment.overall_score:+.2f} (range: -1 to +1)")
     print()
     
-    # Breakdown
     print(f"  {Fore.GREEN}Positive:{Style.RESET_ALL} {sentiment.positive_pct:.0f}%")
     print(f"  {Fore.RED}Negative:{Style.RESET_ALL} {sentiment.negative_pct:.0f}%")
     print(f"  {Fore.YELLOW}Neutral:{Style.RESET_ALL} {sentiment.neutral_pct:.0f}%")
     print()
     
-    # Headlines
     if sentiment.headlines:
         print(f"{Fore.CYAN}Recent Headlines:{Style.RESET_ALL}")
         print(f"{'─' * 60}")
@@ -1204,10 +1192,9 @@ def cmd_sentiment(config: Dict, args: argparse.Namespace) -> int:
             print(f"     {Fore.CYAN}{h.source}{Style.RESET_ALL} • {h.date or 'Recent'}")
         print()
     
-    # Model status note
     if not sentiment.model_available:
         print(f"  {Fore.YELLOW}ℹ️ Using fallback (keyword-based) analysis{Style.RESET_ALL}")
-        print(f"     Install transformers for AI-powered sentiment")
+        print(f"     Install vaderSentiment for enhanced analysis")
     
     print(f"{Fore.CYAN}{'═' * 60}{Style.RESET_ALL}\n")
     return 0
@@ -1304,6 +1291,71 @@ def cmd_global(config: Dict, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_train(config: Dict, args: argparse.Namespace) -> int:
+    """Train all ML models."""
+    print(f"\n{Fore.CYAN}🤖 Training ML Models{Style.RESET_ALL}\n")
+    
+    if not ML_AVAILABLE:
+        print(f"{Fore.YELLOW}⚠️ ML features not available. Install with:{Style.RESET_ALL}")
+        print(f"   pip install scikit-learn vaderSentiment joblib")
+        return 1
+    
+    if not config.get('ml', {}).get('enabled', True):
+        print(f"{Fore.YELLOW}⚠️ ML features disabled in config.yaml{Style.RESET_ALL}")
+        return 1
+    
+    watchlist = config.get('watchlist', [])
+    force = getattr(args, 'force', False)
+    
+    print(f"  Backend: {Fore.GREEN}sklearn (lightweight){Style.RESET_ALL}")
+    print(f"  Stocks: {len(watchlist)}")
+    print(f"  Force retrain: {'Yes' if force else 'No'}")
+    print()
+    
+    fetcher = DataFetcher()
+    ensemble = MLEnsemble(config)
+    
+    import time
+    start = time.time()
+    
+    results = ensemble.train_all(watchlist, fetcher, force=force)
+    
+    elapsed = time.time() - start
+    
+    # Price prediction results
+    print(f"\n{Fore.CYAN}📈 Price Prediction Models:{Style.RESET_ALL}")
+    price_results = results.get('price', {})
+    success = sum(1 for v in price_results.values() if v)
+    failed = sum(1 for v in price_results.values() if not v)
+    print(f"  {Fore.GREEN}✅ Trained: {success}{Style.RESET_ALL}")
+    if failed:
+        print(f"  {Fore.RED}❌ Failed: {failed}{Style.RESET_ALL}")
+        for ticker, ok in price_results.items():
+            if not ok:
+                print(f"     - {ticker}")
+    
+    # Pattern results
+    print(f"\n{Fore.CYAN}📊 Pattern Recognition Models:{Style.RESET_ALL}")
+    pat_results = results.get('patterns', {})
+    success = sum(1 for v in pat_results.values() if v)
+    failed = sum(1 for v in pat_results.values() if not v)
+    print(f"  {Fore.GREEN}✅ Trained: {success}{Style.RESET_ALL}")
+    if failed:
+        print(f"  {Fore.RED}❌ Failed: {failed}{Style.RESET_ALL}")
+    
+    # Sentiment status
+    print(f"\n{Fore.CYAN}📰 Sentiment Engine:{Style.RESET_ALL}")
+    if ensemble.sentiment_analyzer and ensemble.sentiment_analyzer.is_available():
+        print(f"  {Fore.GREEN}✅ VADER ready (no training needed){Style.RESET_ALL}")
+    else:
+        print(f"  {Fore.YELLOW}⚠️ VADER not available{Style.RESET_ALL}")
+    
+    print(f"\n  ⏱️ Total time: {elapsed:.1f}s")
+    print(f"  💾 Models cached in data/models/")
+    print()
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="DayTrader-Forecast PRO - Professional Day Trading Analysis",
@@ -1367,6 +1419,10 @@ def main():
     sentiment_p = subparsers.add_parser('sentiment', help='News sentiment analysis')
     sentiment_p.add_argument('ticker', help='Stock symbol')
     
+    # Train ML models
+    train_p = subparsers.add_parser('train', help='Train ML models')
+    train_p.add_argument('--force', '-f', action='store_true', help='Force retrain all models')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -1396,6 +1452,7 @@ def main():
         'global': cmd_global,
         'predict': cmd_predict,
         'sentiment': cmd_sentiment,
+        'train': cmd_train,
     }
     
     if args.command in commands:

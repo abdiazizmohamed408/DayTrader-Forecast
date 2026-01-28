@@ -41,6 +41,9 @@ env/
 output/
 *.log
 
+# ML model cache
+data/models/*.joblib
+
 # OS
 .DS_Store
 Thumbs.db
