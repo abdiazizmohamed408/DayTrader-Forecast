@@ -9,3 +9,17 @@ colorama>=0.4.6
 
 # For email alerts (optional)
 # smtplib is built-in
+
+# ═══════════════════════════════════════════════════════════
+# AI/ML Features (optional - graceful fallback if not installed)
+# ═══════════════════════════════════════════════════════════
+# Note: These require significant disk space (~2GB) and RAM
+# Install with: pip install chronos-forecasting transformers torch
+
+# AI Price Prediction (Amazon Chronos)
+chronos-forecasting>=1.1.0
+
+# Financial Sentiment Analysis
+transformers>=4.30.0
+torch>=2.0.0
+sentencepiece>=0.1.99

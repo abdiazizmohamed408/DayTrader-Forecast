@@ -1,0 +1,15 @@
+{
+  "last_updated": "2026-01-28T12:20:15.737685",
+  "events": [
+    {
+      "date": "2026-01-29T00:00:00",
+      "time": "08:30",
+      "country": "US",
+      "event": "Jobless Claims",
+      "impact": "MEDIUM",
+      "forecast": "TBD",
+      "previous": null,
+      "actual": null
+    }
+  ]
+}

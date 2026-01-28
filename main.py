@@ -29,14 +29,27 @@ from analyzers.market_context import MarketContextAnalyzer, MarketRegime
 from analyzers.risk_manager import RiskManager
 from analyzers.news_filter import NewsAndEarningsFilter
 from analyzers.premarket import PremarketScanner
+from analyzers.events import EventRiskAnalyzer
+from analyzers.global_market import GlobalMarketAnalyzer
 from backtesting.engine import BacktestEngine
 from data.fetcher import DataFetcher
+from data.forex import ForexFetcher, FOREX_PAIRS
+from data.events import EconomicCalendarFetcher
 from paper.simulator import PaperTrader
 from reports.generator import ReportGenerator
 from tracking.tracker import PredictionTracker
 from utils.helpers import load_config, format_currency, ensure_dir
 from utils.alerts import AlertSystem
 from utils.validator import DataValidator, ErrorHandler
+
+# ML imports (optional - graceful fallback)
+try:
+    from ml.ensemble import MLEnsemble
+    from ml.price_predictor import PricePredictor
+    from ml.sentiment import SentimentAnalyzer
+    ML_AVAILABLE = True
+except ImportError:
+    ML_AVAILABLE = False
 
 
 colorama_init()
@@ -115,8 +128,77 @@ def cmd_scan(config: Dict, args: argparse.Namespace) -> int:
     tracker = PredictionTracker(get_db_path())
     validator = DataValidator(config)
     alert_system = AlertSystem(config)
+    global_analyzer = GlobalMarketAnalyzer(config)
+    event_analyzer = EventRiskAnalyzer(config)
     
-    # Check market context first
+    # Initialize ML ensemble (optional)
+    ml_ensemble = None
+    ml_enabled = config.get('ml', {}).get('enabled', True) and ML_AVAILABLE
+    ml_analyses = {}  # Store ML analysis per ticker
+    
+    if ml_enabled:
+        try:
+            ml_ensemble = MLEnsemble(config)
+            if ml_ensemble.is_available():
+                print(f"  {Fore.GREEN}🤖 AI features enabled{Style.RESET_ALL}\n")
+            else:
+                print(f"  {Fore.YELLOW}🤖 AI features: fallback mode{Style.RESET_ALL}\n")
+        except Exception as e:
+            print(f"  {Fore.YELLOW}⚠️ AI features unavailable: {e}{Style.RESET_ALL}\n")
+            ml_ensemble = None
+    
+    # Check global market context first
+    global_config = config.get('global_indicators', {})
+    events_config = config.get('events', {})
+    
+    if global_config.get('show_in_scan', True):
+        print(f"  {Fore.CYAN}🌍 Global Context:{Style.RESET_ALL}")
+        try:
+            global_context = global_analyzer.analyze_global_context()
+            vix_data = global_analyzer.get_vix_signal()
+            
+            # Sentiment
+            sentiment_emoji = {'RISK_ON': '🟢', 'RISK_OFF': '🔴', 'NEUTRAL': '🟡', 'UNCERTAIN': '⚠️'}
+            print(f"     Sentiment: {sentiment_emoji.get(global_context.sentiment.value, '❓')} {global_context.sentiment.value}")
+            
+            # VIX
+            vix_level = vix_data['level']
+            if vix_level > 25:
+                print(f"     VIX: {Fore.RED}{vix_level:.1f}{Style.RESET_ALL} ⚠️ Elevated")
+            elif vix_level < 15:
+                print(f"     VIX: {Fore.GREEN}{vix_level:.1f}{Style.RESET_ALL} 😴 Low")
+            else:
+                print(f"     VIX: {vix_level:.1f}")
+            
+            print(f"     USD: {global_context.dxy_trend}")
+        except Exception as e:
+            print(f"     {Fore.YELLOW}Could not fetch global data{Style.RESET_ALL}")
+        print()
+    
+    # Check economic events
+    if events_config.get('show_in_scan', True):
+        print(f"  {Fore.CYAN}📅 Economic Events:{Style.RESET_ALL}")
+        try:
+            event_risk = event_analyzer.assess_event_risk()
+            
+            if event_risk.should_avoid_trading:
+                print(f"     {Fore.RED}🚨 MAJOR EVENT IMMINENT - Consider waiting{Style.RESET_ALL}")
+            elif event_risk.risk_level.value in ['EXTREME', 'HIGH']:
+                print(f"     {Fore.YELLOW}⚠️ High-impact event upcoming{Style.RESET_ALL}")
+            else:
+                print(f"     {Fore.GREEN}✓ No major events soon{Style.RESET_ALL}")
+            
+            # Show warnings
+            for warning in event_risk.warnings[:2]:
+                print(f"     {warning}")
+            
+            if event_risk.confidence_adjustment != 0:
+                print(f"     Signal adjustment: {event_risk.confidence_adjustment:+.0f}%")
+        except Exception as e:
+            print(f"     {Fore.YELLOW}Could not fetch event data{Style.RESET_ALL}")
+        print()
+    
+    # Check market context
     print(f"  {Fore.CYAN}Analyzing market context...{Style.RESET_ALL}")
     market_context = market_analyzer.analyze_market(fetcher)
     
@@ -221,6 +303,32 @@ def cmd_scan(config: Dict, args: argparse.Namespace) -> int:
             if agreement < min_agreement:
                 adjusted_probability -= 10
         
+        # 6. ML/AI Analysis (if enabled)
+        ml_analysis = None
+        if ml_ensemble and signal.signal_type != SignalType.HOLD:
+            try:
+                ml_analysis = ml_ensemble.analyze(
+                    ticker, data, signal.signal_type.value
+                )
+                ml_analyses[ticker] = ml_analysis
+                
+                # Enhance probability with ML
+                adjusted_probability, ml_reasons = ml_ensemble.enhance_signal_probability(
+                    adjusted_probability, ml_analysis, signal.signal_type.value
+                )
+                
+                # Add ML reasons
+                signal.reasons.extend(ml_reasons)
+                
+                # Note if AI agrees
+                if ml_analysis.ai_agrees_with_technical:
+                    confidence_notes.append("🤖✅")
+                elif ml_analysis.ai_agrees_with_technical is False:
+                    confidence_notes.append("🤖⚠️")
+                    
+            except Exception as e:
+                pass  # Silently continue without ML
+        
         # Cap probability
         adjusted_probability = max(0, min(95, adjusted_probability))
         
@@ -270,12 +378,54 @@ def cmd_scan(config: Dict, args: argparse.Namespace) -> int:
     
     signals.sort(key=lambda x: x.probability, reverse=True)
     
-    print(f"{'TICKER':<8} │ {'SIG':4s} │ {'PROB':>5s} │ {'PRICE':>10s}")
-    print(f"{'─' * 8}─┼─{'─' * 4}─┼─{'─' * 5}─┼─{'─' * 10}")
+    # Determine if we have ML data to show
+    has_ml_data = bool(ml_analyses)
     
-    for signal in signals:
-        conf = "⭐ HIGH" if signal.probability >= min_prob and signal.signal_type != SignalType.HOLD else ""
-        print(format_signal_line(signal, conf))
+    if has_ml_data:
+        # Extended format with AI columns
+        print(f"{'TICKER':<8} │ {'SIG':4s} │ {'PROB':>5s} │ {'AI PRED':>9s} │ {'SENTIMENT':>10s} │ {'PRICE':>10s}")
+        print(f"{'─' * 8}─┼─{'─' * 4}─┼─{'─' * 5}─┼─{'─' * 9}─┼─{'─' * 10}─┼─{'─' * 10}")
+        
+        for signal in signals:
+            # Signal color
+            if signal.signal_type == SignalType.BUY:
+                color = Fore.GREEN
+                emoji = "🟢"
+            elif signal.signal_type == SignalType.SELL:
+                color = Fore.RED
+                emoji = "🔴"
+            else:
+                color = Fore.YELLOW
+                emoji = "🟡"
+            
+            # ML data for this ticker
+            ml = ml_analyses.get(signal.ticker)
+            if ml:
+                ai_pred = ml.get_direction_str()
+                sentiment = ml.get_sentiment_str()
+            else:
+                ai_pred = "–"
+                sentiment = "–"
+            
+            # Confidence star
+            conf = " ⭐" if signal.probability >= min_prob and signal.signal_type != SignalType.HOLD else ""
+            
+            print(
+                f"{emoji} {color}{signal.ticker:6s}{Style.RESET_ALL} │ "
+                f"{signal.signal_type.value:4s} │ "
+                f"{signal.probability:5.1f}%│ "
+                f"{ai_pred:>9s} │ "
+                f"{sentiment:>10s} │ "
+                f"{format_currency(signal.entry_price):>10s}{conf}"
+            )
+    else:
+        # Original format (no ML)
+        print(f"{'TICKER':<8} │ {'SIG':4s} │ {'PROB':>5s} │ {'PRICE':>10s}")
+        print(f"{'─' * 8}─┼─{'─' * 4}─┼─{'─' * 5}─┼─{'─' * 10}")
+        
+        for signal in signals:
+            conf = "⭐ HIGH" if signal.probability >= min_prob and signal.signal_type != SignalType.HOLD else ""
+            print(format_signal_line(signal, conf))
     
     print()
     
@@ -695,6 +845,465 @@ def cmd_verify(config: Dict, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_forex(config: Dict, args: argparse.Namespace) -> int:
+    """Forex pair analysis."""
+    print(f"\n{Fore.CYAN}💱 Forex Pair Analysis{Style.RESET_ALL}\n")
+    
+    forex_config = config.get('forex', {})
+    if not forex_config.get('enabled', True):
+        print(f"{Fore.YELLOW}Forex analysis is disabled in config{Style.RESET_ALL}")
+        return 0
+    
+    pairs = forex_config.get('pairs', list(FOREX_PAIRS.keys())[:6])
+    
+    # Initialize analyzers
+    forex_fetcher = ForexFetcher()
+    analyzer = TechnicalAnalyzer(config)
+    signal_gen = SignalGenerator(config)
+    global_analyzer = GlobalMarketAnalyzer(config)
+    event_analyzer = EventRiskAnalyzer(config)
+    
+    # Show forex session status
+    sessions = forex_fetcher.is_forex_session_active()
+    active_sessions = [s for s, active in sessions.items() if active and s != 'overlap_london_ny']
+    print(f"  {Fore.CYAN}Active Sessions:{Style.RESET_ALL} {', '.join(active_sessions) if active_sessions else 'Weekend'}")
+    
+    if sessions.get('overlap_london_ny'):
+        print(f"  {Fore.GREEN}🔥 London/NY Overlap - Peak Volatility!{Style.RESET_ALL}")
+    print()
+    
+    # Check global context
+    global_context = global_analyzer.analyze_global_context()
+    print(f"  {Fore.CYAN}USD Trend:{Style.RESET_ALL} {global_context.dxy_trend}")
+    print(f"  {Fore.CYAN}Risk Sentiment:{Style.RESET_ALL} {global_context.sentiment.value}")
+    print()
+    
+    # Check event risk
+    event_risk = event_analyzer.assess_event_risk()
+    if event_risk.warnings:
+        for warning in event_risk.warnings[:3]:
+            print(f"  {warning}")
+        print()
+    
+    # Analyze forex pairs
+    print(f"{'PAIR':<12} │ {'PRICE':>10} │ {'CHANGE':>8} │ {'SIGNAL':>6} │ {'PROB':>5} │ NOTES")
+    print(f"{'─' * 12}─┼─{'─' * 10}─┼─{'─' * 8}─┼─{'─' * 6}─┼─{'─' * 5}─┼─{'─' * 20}")
+    
+    for pair in pairs:
+        pair_name = forex_fetcher.get_pair_name(pair)
+        
+        # Get data
+        data = forex_fetcher.get_forex_data(pair)
+        if data is None or len(data) < 50:
+            print(f"{pair_name:<12} │ {'N/A':>10} │ {'---':>8} │ {'---':>6} │ {'---':>5} │ No data")
+            continue
+        
+        # Get quote
+        quote = forex_fetcher.get_realtime_quote(pair)
+        current_price = quote.get('price', data['close'].iloc[-1]) if quote else data['close'].iloc[-1]
+        change = quote.get('change_pct', 0) if quote else 0
+        
+        # Technical analysis
+        analysis = analyzer.analyze(data)
+        if analysis is None:
+            print(f"{pair_name:<12} │ {current_price:>10.4f} │ {change:>+7.2f}% │ {'---':>6} │ {'---':>5} │ Insufficient data")
+            continue
+        
+        # Generate signal
+        signal = signal_gen.generate_signal(pair, analysis)
+        if signal is None:
+            signal_str = "HOLD"
+            prob = 50
+            color = Fore.YELLOW
+        else:
+            signal_str = signal.signal_type.value
+            prob = signal.probability
+            
+            # Adjust for event risk
+            prob += event_risk.confidence_adjustment
+            prob = max(0, min(95, prob))
+            
+            if signal.signal_type == SignalType.BUY:
+                color = Fore.GREEN
+            elif signal.signal_type == SignalType.SELL:
+                color = Fore.RED
+            else:
+                color = Fore.YELLOW
+        
+        # Notes
+        notes = []
+        if analysis.get('rsi_overbought'):
+            notes.append("Overbought")
+        elif analysis.get('rsi_oversold'):
+            notes.append("Oversold")
+        if analysis.get('macd_crossover'):
+            notes.append("MACD↑")
+        elif analysis.get('macd_crossunder'):
+            notes.append("MACD↓")
+        
+        notes_str = ", ".join(notes) if notes else "-"
+        
+        change_color = Fore.GREEN if change > 0 else (Fore.RED if change < 0 else Fore.WHITE)
+        
+        print(f"{pair_name:<12} │ {current_price:>10.4f} │ {change_color}{change:>+7.2f}%{Style.RESET_ALL} │ "
+              f"{color}{signal_str:>6}{Style.RESET_ALL} │ {prob:>4.0f}% │ {notes_str}")
+    
+    print()
+    
+    # Session recommendations
+    print(f"{Fore.CYAN}📋 Session Notes:{Style.RESET_ALL}")
+    if sessions.get('overlap_london_ny'):
+        print(f"  • Best time for EUR/USD, GBP/USD volatility")
+    if sessions.get('tokyo') and not sessions.get('london'):
+        print(f"  • Focus on JPY pairs during Tokyo session")
+    if not any(sessions.values()):
+        print(f"  • Forex market closed (weekend)")
+    
+    print()
+    return 0
+
+
+def cmd_events(config: Dict, args: argparse.Namespace) -> int:
+    """Show upcoming economic events."""
+    hours = args.hours if hasattr(args, 'hours') and args.hours else 48
+    
+    print(f"\n{Fore.CYAN}📅 UPCOMING ECONOMIC EVENTS (Next {hours} Hours){Style.RESET_ALL}")
+    print(f"{'═' * 65}\n")
+    
+    event_analyzer = EventRiskAnalyzer(config)
+    summary = event_analyzer.get_event_summary(hours=hours)
+    
+    # Risk assessment
+    risk_level = summary['risk_level']
+    risk_emoji = summary['risk_emoji']
+    
+    if risk_level == 'EXTREME':
+        risk_color = Fore.RED
+    elif risk_level == 'HIGH':
+        risk_color = Fore.YELLOW
+    else:
+        risk_color = Fore.GREEN
+    
+    print(f"  Current Risk: {risk_emoji} {risk_color}{risk_level}{Style.RESET_ALL}")
+    
+    if summary['confidence_adjustment'] != 0:
+        print(f"  Signal Adjustment: {summary['confidence_adjustment']:+.0f}% probability")
+    
+    if summary['should_avoid']:
+        print(f"  {Fore.RED}⚠️ AVOID TRADING - Major event imminent{Style.RESET_ALL}")
+    
+    print()
+    
+    # Warnings
+    if summary['warnings']:
+        print(f"{Fore.YELLOW}Warnings:{Style.RESET_ALL}")
+        for warning in summary['warnings']:
+            print(f"  {warning}")
+        print()
+    
+    # Event table
+    events = summary['events']
+    if not events:
+        print(f"  {Fore.GREEN}✓ No major events in the next {hours} hours{Style.RESET_ALL}")
+    else:
+        print(f"TIME (ET)      EVENT                         IMPACT   FORECAST")
+        print(f"{'─' * 65}")
+        
+        for event in events[:15]:  # Show max 15 events
+            time_str = event.datetime_str
+            event_name = event.event[:28].ljust(28)
+            
+            if event.impact.value == 'HIGH':
+                impact_color = Fore.RED
+            elif event.impact.value == 'MEDIUM':
+                impact_color = Fore.YELLOW
+            else:
+                impact_color = Fore.GREEN
+            
+            impact_str = f"{event.impact_emoji} {impact_color}{event.impact.value:6s}{Style.RESET_ALL}"
+            forecast = (event.forecast or "TBD")[:10]
+            
+            print(f"{time_str:14s} {event_name} {impact_str} {forecast}")
+    
+    print()
+    
+    # Trading recommendations
+    print(f"{Fore.CYAN}📋 Recommendations:{Style.RESET_ALL}")
+    
+    if summary['high_impact_count'] > 0:
+        print(f"  • {summary['high_impact_count']} high-impact events upcoming")
+        print(f"  • Consider reducing position sizes")
+        print(f"  • Set tighter stops before events")
+    else:
+        print(f"  • Low event risk - normal trading conditions")
+    
+    print()
+    return 0
+
+
+def cmd_predict(config: Dict, args: argparse.Namespace) -> int:
+    """AI price prediction for a ticker."""
+    ticker = args.ticker.upper()
+    print(f"\n{Fore.CYAN}🤖 AI Price Prediction: {ticker}{Style.RESET_ALL}\n")
+    
+    if not ML_AVAILABLE:
+        print(f"{Fore.YELLOW}⚠️ ML features not available. Install with:{Style.RESET_ALL}")
+        print(f"   pip install chronos-forecasting transformers torch")
+        return 1
+    
+    # Check if ML is enabled in config
+    if not config.get('ml', {}).get('enabled', True):
+        print(f"{Fore.YELLOW}⚠️ ML features disabled in config.yaml{Style.RESET_ALL}")
+        return 1
+    
+    fetcher = DataFetcher()
+    predictor = PricePredictor(config)
+    
+    # Check model status
+    status = predictor.get_status()
+    if not status['loaded']:
+        print(f"{Fore.YELLOW}⚠️ Chronos model not loaded: {status.get('error', 'Unknown error')}{Style.RESET_ALL}")
+        print(f"   Using momentum-based fallback prediction\n")
+    else:
+        print(f"  Model: {Fore.GREEN}{status['model']}{Style.RESET_ALL}")
+        print()
+    
+    # Fetch data
+    print(f"  Fetching {ticker} data...", end=" ", flush=True)
+    data = fetcher.get_stock_data(ticker, period="6mo")
+    if data is None:
+        print(f"{Fore.RED}Failed{Style.RESET_ALL}")
+        return 1
+    print(f"{Fore.GREEN}Done{Style.RESET_ALL}\n")
+    
+    # Get prediction
+    prediction = predictor.predict(ticker, data)
+    
+    if prediction is None:
+        print(f"{Fore.RED}❌ Could not generate prediction{Style.RESET_ALL}")
+        return 1
+    
+    # Display results
+    print(f"{Fore.CYAN}{'═' * 50}{Style.RESET_ALL}")
+    print(f"  Current Price: {format_currency(prediction.current_price)}")
+    print()
+    
+    # Direction with color
+    if prediction.direction == "UP":
+        dir_color = Fore.GREEN
+        dir_emoji = "📈"
+    elif prediction.direction == "DOWN":
+        dir_color = Fore.RED
+        dir_emoji = "📉"
+    else:
+        dir_color = Fore.YELLOW
+        dir_emoji = "➡️"
+    
+    print(f"  {dir_emoji} Predicted Direction: {dir_color}{prediction.direction}{Style.RESET_ALL}")
+    print(f"  Expected Change: {dir_color}{prediction.predicted_change_pct:+.2f}%{Style.RESET_ALL}")
+    print()
+    
+    # Confidence interval
+    print(f"  Confidence Interval (80%):")
+    print(f"    Low:  {prediction.confidence_low:+.2f}%")
+    print(f"    High: {prediction.confidence_high:+.2f}%")
+    print()
+    
+    # Daily predictions
+    if len(prediction.predicted_prices) > 1:
+        print(f"  {Fore.CYAN}Daily Predictions:{Style.RESET_ALL}")
+        for i, price in enumerate(prediction.predicted_prices, 1):
+            change = ((price - prediction.current_price) / prediction.current_price) * 100
+            c = Fore.GREEN if change > 0 else (Fore.RED if change < 0 else Fore.WHITE)
+            print(f"    Day {i}: {format_currency(price)} ({c}{change:+.2f}%{Style.RESET_ALL})")
+        print()
+    
+    # Model status note
+    if not prediction.model_available:
+        print(f"  {Fore.YELLOW}ℹ️ Using fallback (momentum-based) prediction{Style.RESET_ALL}")
+        print(f"     Install Chronos for AI-powered predictions")
+    
+    print(f"{Fore.CYAN}{'═' * 50}{Style.RESET_ALL}\n")
+    return 0
+
+
+def cmd_sentiment(config: Dict, args: argparse.Namespace) -> int:
+    """Sentiment analysis for a ticker."""
+    ticker = args.ticker.upper()
+    print(f"\n{Fore.CYAN}📰 Sentiment Analysis: {ticker}{Style.RESET_ALL}\n")
+    
+    if not ML_AVAILABLE:
+        print(f"{Fore.YELLOW}⚠️ ML features not available. Install with:{Style.RESET_ALL}")
+        print(f"   pip install transformers torch")
+        return 1
+    
+    # Check if ML is enabled in config
+    if not config.get('ml', {}).get('enabled', True):
+        print(f"{Fore.YELLOW}⚠️ ML features disabled in config.yaml{Style.RESET_ALL}")
+        return 1
+    
+    analyzer = SentimentAnalyzer(config)
+    
+    # Check model status
+    status = analyzer.get_status()
+    if not status['loaded']:
+        print(f"{Fore.YELLOW}⚠️ Sentiment model not loaded: {status.get('error', 'Unknown error')}{Style.RESET_ALL}")
+        print(f"   Using keyword-based fallback analysis\n")
+    else:
+        print(f"  Model: {Fore.GREEN}DistilRoBERTa Financial{Style.RESET_ALL}")
+        print()
+    
+    # Fetch and analyze
+    print(f"  Fetching news for {ticker}...", end=" ", flush=True)
+    sentiment = analyzer.analyze_ticker(ticker)
+    
+    if sentiment is None:
+        print(f"{Fore.RED}No news found{Style.RESET_ALL}")
+        return 1
+    print(f"{Fore.GREEN}Found {sentiment.headline_count} headlines{Style.RESET_ALL}\n")
+    
+    # Display results
+    print(f"{Fore.CYAN}{'═' * 60}{Style.RESET_ALL}")
+    
+    # Overall sentiment
+    emoji = sentiment.get_emoji()
+    if sentiment.sentiment_label == "BULLISH":
+        label_color = Fore.GREEN
+    elif sentiment.sentiment_label == "BEARISH":
+        label_color = Fore.RED
+    else:
+        label_color = Fore.YELLOW
+    
+    print(f"  {emoji} Overall Sentiment: {label_color}{sentiment.sentiment_label}{Style.RESET_ALL}")
+    print(f"  Score: {sentiment.overall_score:+.2f} (range: -1 to +1)")
+    print()
+    
+    # Breakdown
+    print(f"  {Fore.GREEN}Positive:{Style.RESET_ALL} {sentiment.positive_pct:.0f}%")
+    print(f"  {Fore.RED}Negative:{Style.RESET_ALL} {sentiment.negative_pct:.0f}%")
+    print(f"  {Fore.YELLOW}Neutral:{Style.RESET_ALL} {sentiment.neutral_pct:.0f}%")
+    print()
+    
+    # Headlines
+    if sentiment.headlines:
+        print(f"{Fore.CYAN}Recent Headlines:{Style.RESET_ALL}")
+        print(f"{'─' * 60}")
+        for h in sentiment.headlines[:8]:
+            if h.sentiment == 'positive':
+                s_emoji = "🟢"
+                s_color = Fore.GREEN
+            elif h.sentiment == 'negative':
+                s_emoji = "🔴"
+                s_color = Fore.RED
+            else:
+                s_emoji = "⚪"
+                s_color = Fore.WHITE
+            
+            headline_short = h.headline[:55] + "..." if len(h.headline) > 55 else h.headline
+            print(f"  {s_emoji} {s_color}{headline_short}{Style.RESET_ALL}")
+            print(f"     {Fore.CYAN}{h.source}{Style.RESET_ALL} • {h.date or 'Recent'}")
+        print()
+    
+    # Model status note
+    if not sentiment.model_available:
+        print(f"  {Fore.YELLOW}ℹ️ Using fallback (keyword-based) analysis{Style.RESET_ALL}")
+        print(f"     Install transformers for AI-powered sentiment")
+    
+    print(f"{Fore.CYAN}{'═' * 60}{Style.RESET_ALL}\n")
+    return 0
+
+
+def cmd_global(config: Dict, args: argparse.Namespace) -> int:
+    """Show global market indicators."""
+    print(f"\n{Fore.CYAN}🌍 GLOBAL MARKET INDICATORS{Style.RESET_ALL}")
+    print(f"{'═' * 55}\n")
+    
+    global_analyzer = GlobalMarketAnalyzer(config)
+    context = global_analyzer.analyze_global_context()
+    
+    # Overall sentiment
+    sentiment_colors = {
+        'RISK_ON': Fore.GREEN,
+        'RISK_OFF': Fore.RED,
+        'NEUTRAL': Fore.YELLOW,
+        'UNCERTAIN': Fore.MAGENTA
+    }
+    sentiment_emojis = {
+        'RISK_ON': '🟢',
+        'RISK_OFF': '🔴',
+        'NEUTRAL': '🟡',
+        'UNCERTAIN': '⚠️'
+    }
+    
+    s_color = sentiment_colors.get(context.sentiment.value, Fore.WHITE)
+    s_emoji = sentiment_emojis.get(context.sentiment.value, '❓')
+    
+    print(f"  Market Sentiment: {s_emoji} {s_color}{context.sentiment.value}{Style.RESET_ALL}")
+    print(f"  Risk Score: {context.risk_score:.0f}/100 (higher = more risk-off)")
+    print(f"  Signal Adjustment: {context.confidence_adjustment:+.0f}%")
+    print()
+    
+    # Key indicators
+    print(f"{Fore.CYAN}Key Indicators:{Style.RESET_ALL}")
+    print(f"{'─' * 55}")
+    
+    vix_data = global_analyzer.get_vix_signal()
+    vix_level = vix_data['level']
+    
+    if vix_level > 35:
+        vix_color = Fore.RED
+        vix_status = "🚨 EXTREME FEAR"
+    elif vix_level > 25:
+        vix_color = Fore.YELLOW
+        vix_status = "⚠️ Elevated"
+    elif vix_level < 15:
+        vix_color = Fore.GREEN
+        vix_status = "😴 Complacent"
+    else:
+        vix_color = Fore.WHITE
+        vix_status = "Normal"
+    
+    print(f"  VIX: {vix_color}{vix_level:.1f}{Style.RESET_ALL} - {vix_status}")
+    print(f"  USD (DXY): {context.dxy_trend}")
+    print(f"  10Y Treasury: {context.treasury_10y:.2f}%")
+    print()
+    
+    # Indicator table
+    print(f"{'INDICATOR':<15} {'PRICE':>12} {'CHANGE':>10} {'SIGNAL':>10}")
+    print(f"{'─' * 15}─{'─' * 12}─{'─' * 10}─{'─' * 10}")
+    
+    for ind in context.indicators:
+        change_str = f"{ind.change_pct:+.2f}%"
+        
+        if ind.signal == "BULLISH":
+            sig_color = Fore.GREEN
+            sig_emoji = "🟢"
+        elif ind.signal == "BEARISH":
+            sig_color = Fore.RED
+            sig_emoji = "🔴"
+        else:
+            sig_color = Fore.YELLOW
+            sig_emoji = "⚪"
+        
+        change_color = Fore.GREEN if ind.change_pct > 0 else (Fore.RED if ind.change_pct < 0 else Fore.WHITE)
+        
+        print(f"{ind.name:<15} {ind.current_price:>12.2f} {change_color}{change_str:>10}{Style.RESET_ALL} {sig_emoji} {sig_color}{ind.signal}{Style.RESET_ALL}")
+    
+    print()
+    
+    # Recommendations
+    should_reduce, reason = global_analyzer.should_reduce_exposure()
+    
+    print(f"{Fore.CYAN}📋 Recommendations:{Style.RESET_ALL}")
+    if should_reduce:
+        print(f"  {Fore.YELLOW}⚠️ Consider reducing exposure: {reason}{Style.RESET_ALL}")
+    else:
+        print(f"  {Fore.GREEN}✓ Global conditions support normal trading{Style.RESET_ALL}")
+    
+    print()
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="DayTrader-Forecast PRO - Professional Day Trading Analysis",
@@ -740,6 +1349,24 @@ def main():
     report_p = subparsers.add_parser('report', help='Generate report')
     report_p.add_argument('--email', '-e', action='store_true', help='Email report')
     
+    # Forex
+    forex_p = subparsers.add_parser('forex', help='Forex pair analysis')
+    
+    # Events
+    events_p = subparsers.add_parser('events', help='Economic calendar and events')
+    events_p.add_argument('--hours', type=int, default=48, help='Hours to look ahead')
+    
+    # Global
+    global_p = subparsers.add_parser('global', help='Global market indicators')
+    
+    # AI Predict
+    predict_p = subparsers.add_parser('predict', help='AI price prediction')
+    predict_p.add_argument('ticker', help='Stock symbol')
+    
+    # Sentiment
+    sentiment_p = subparsers.add_parser('sentiment', help='News sentiment analysis')
+    sentiment_p.add_argument('ticker', help='Stock symbol')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -764,6 +1391,11 @@ def main():
         'risk': cmd_risk,
         'performance': cmd_performance,
         'verify': cmd_verify,
+        'forex': cmd_forex,
+        'events': cmd_events,
+        'global': cmd_global,
+        'predict': cmd_predict,
+        'sentiment': cmd_sentiment,
     }
     
     if args.command in commands:

@@ -102,32 +102,36 @@ risk:
   max_open_positions: 5     # Maximum concurrent positions
 
 # ═══════════════════════════════════════════════════════════
-# SIGNAL FILTERS
+# SIGNAL FILTERS (STRICT - Targeting 60-70% Win Rate)
 # ═══════════════════════════════════════════════════════════
 filters:
-  # Minimum probability to generate signal
-  min_probability: 40
+  # Minimum probability to generate signal (raised for higher accuracy)
+  min_probability: 60
   
   # Minimum probability for HIGH CONFIDENCE signal
-  high_confidence_threshold: 65
+  high_confidence_threshold: 75
   
-  # Minimum indicators that must agree
-  min_indicator_agreement: 3
+  # Minimum indicators that must agree (stricter)
+  min_indicator_agreement: 4
   
-  # Volume requirements
+  # Volume requirements (stricter)
   require_volume_confirmation: true
-  min_volume_ratio: 0.8     # Minimum ratio vs average volume
+  min_volume_ratio: 1.2     # Require above-average volume
   
   # Market context filtering
   respect_market_context: true
+  
+  # Additional strict filters
+  require_trend_alignment: true   # Price must be trending in signal direction
+  min_risk_reward: 2.5            # Higher R:R requirement
 
 # ═══════════════════════════════════════════════════════════
-# MULTI-TIMEFRAME ANALYSIS
+# MULTI-TIMEFRAME ANALYSIS (STRICT)
 # ═══════════════════════════════════════════════════════════
 multi_tf:
   enabled: true
-  min_alignment: 0.6        # 60% of timeframes must agree
-  min_confluence: 3         # At least 3 timeframes aligned
+  min_alignment: 0.75       # 75% of timeframes must agree (was 60%)
+  min_confluence: 4         # At least 4 timeframes aligned (was 3)
 
 # ═══════════════════════════════════════════════════════════
 # NEWS & EARNINGS FILTER
@@ -176,8 +180,76 @@ validation:
   outlier_std: 5            # Standard deviations for outlier detection
 
 # ═══════════════════════════════════════════════════════════
+# FOREX TRADING
+# ═══════════════════════════════════════════════════════════
+forex:
+  enabled: true
+  pairs:
+    - EURUSD=X   # Euro / US Dollar
+    - GBPUSD=X   # British Pound / US Dollar
+    - USDJPY=X   # US Dollar / Japanese Yen
+    - USDCAD=X   # US Dollar / Canadian Dollar
+    - AUDUSD=X   # Australian Dollar / US Dollar
+    - USDCHF=X   # US Dollar / Swiss Franc
+
+# ═══════════════════════════════════════════════════════════
+# GLOBAL MARKET INDICATORS
+# ═══════════════════════════════════════════════════════════
+global_indicators:
+  enabled: true
+  show_in_scan: true        # Show global context in scan output
+  
+  # VIX thresholds
+  vix_low: 15               # Below = complacent market
+  vix_normal: 20            # Normal volatility
+  vix_high: 25              # Elevated volatility
+  vix_extreme: 35           # Extreme fear
+  
+  # Risk adjustment
+  adjust_confidence: true   # Adjust signal confidence based on global context
+  reduce_on_high_vix: true  # Reduce position sizing on high VIX
+
+# ═══════════════════════════════════════════════════════════
+# ECONOMIC EVENTS
+# ═══════════════════════════════════════════════════════════
+events:
+  enabled: true
+  show_in_scan: true        # Show upcoming events in scan
+  hours_to_show: 48         # Hours of events to display
+  
+  # Event risk settings
+  avoid_before_fed: 4       # Hours to avoid trading before Fed
+  avoid_before_nfp: 4       # Hours to avoid trading before NFP
+  reduce_before_cpi: 2      # Hours to reduce exposure before CPI
+  
+  # Confidence adjustments
+  extreme_event_penalty: -20  # Probability penalty near extreme events
+  high_event_penalty: -10     # Penalty near high impact events
+  medium_event_penalty: -5    # Penalty near medium impact events
+
+# ═══════════════════════════════════════════════════════════
 # REPORT SETTINGS
 # ═══════════════════════════════════════════════════════════
 reports:
   output_dir: "./output"
   top_picks_count: 5
+
+# ═══════════════════════════════════════════════════════════
+# MACHINE LEARNING / AI FEATURES
+# ═══════════════════════════════════════════════════════════
+ml:
+  enabled: true                  # Master switch for AI features
+  
+  # AI Price Prediction (Amazon Chronos)
+  price_prediction:
+    model: "amazon/chronos-t5-small"  # 46M params, runs on CPU
+    weight: 0.30                      # Weight in ensemble (30%)
+    prediction_days: 5                # Days to predict ahead
+    lookback_days: 60                 # Historical days for context
+    
+  # Financial Sentiment Analysis
+  sentiment:
+    model: "mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis"
+    weight: 0.20                      # Weight in ensemble (20%)
+    min_headlines: 3                  # Minimum headlines required
+    news_days: 3                      # Days of news to fetch

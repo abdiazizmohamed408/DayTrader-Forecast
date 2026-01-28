@@ -42,6 +42,25 @@ A Python-based technical analysis tool for day trading that scans stocks and gen
 - Adjusts signal confidence based on overall market direction
 - VIX level monitoring for volatility context
 
+### Forex Analysis 🆕
+- Major forex pair scanning (EUR/USD, GBP/USD, USD/JPY, etc.)
+- Same technical analysis applied to forex
+- Session awareness (London, New York, Tokyo, Sydney)
+- Peak volatility detection during session overlaps
+
+### Economic Calendar 🆕
+- Tracks high-impact economic events (Fed, NFP, CPI, GDP)
+- Automatic signal adjustment based on event proximity
+- Event risk warnings when major announcements imminent
+- 48-hour lookahead for trading planning
+
+### Global Market Indicators 🆕
+- VIX volatility tracking with sentiment levels
+- USD strength (DXY) correlation
+- 10-Year Treasury yield monitoring
+- Gold and Oil price tracking
+- Cross-market correlation analysis
+
 ### Probability Scoring
 - Weighted scoring system (0-100%)
 - Multiple indicator agreement
@@ -79,6 +98,27 @@ A Python-based technical analysis tool for day trading that scans stocks and gen
 ### Reports
 - Daily market scan reports
 - Individual stock analysis
+
+### 🤖 AI/ML Features (NEW!)
+
+**AI Price Prediction** powered by Amazon Chronos:
+- Uses `amazon/chronos-t5-small` (46M params) time series foundation model
+- Predicts price direction for next 1-5 days
+- Provides confidence intervals (80% probability range)
+- Runs on CPU (GPU optional for faster inference)
+- Graceful fallback to momentum-based prediction if unavailable
+
+**Financial Sentiment Analysis** powered by DistilRoBERTa:
+- Uses `mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis`
+- Analyzes recent news headlines from Yahoo Finance
+- Aggregates sentiment into BULLISH/BEARISH/NEUTRAL score
+- Factors into overall signal probability
+
+**Ensemble Integration:**
+- Combines Technical Analysis (50%) + AI Prediction (30%) + Sentiment (20%)
+- Only uses AI when confidence is high
+- Flags when AI agrees/disagrees with technical signal
+- Fully optional - gracefully degrades without ML dependencies
 - Markdown export
 - Email delivery (optional)
 
@@ -221,6 +261,189 @@ python main.py paper --auto
 # Reset and start fresh
 python main.py paper --reset
 ```
+
+### Forex Analysis 🆕
+
+Analyze major forex pairs with technical indicators:
+
+```bash
+python main.py forex
+```
+
+Example output:
+```
+💱 Forex Pair Analysis
+
+  Active Sessions: london, new_york
+  🔥 London/NY Overlap - Peak Volatility!
+
+  USD Trend: STRONG
+  Risk Sentiment: RISK_ON
+
+PAIR         │      PRICE │  CHANGE │ SIGNAL │  PROB │ NOTES
+─────────────┼────────────┼─────────┼────────┼───────┼────────────
+EUR/USD      │     1.0845 │  -0.32% │   SELL │   68% │ Overbought
+GBP/USD      │     1.2732 │  +0.15% │    BUY │   62% │ MACD↑
+USD/JPY      │   154.2300 │  +0.45% │   HOLD │   52% │ -
+USD/CAD      │     1.3521 │  -0.12% │   SELL │   58% │ -
+```
+
+### Economic Calendar 🆕
+
+View upcoming high-impact economic events:
+
+```bash
+python main.py events
+```
+
+Options:
+- `--hours` or `-h`: Hours to look ahead (default: 48)
+
+```bash
+python main.py events --hours 72
+```
+
+Example output:
+```
+📅 UPCOMING ECONOMIC EVENTS (Next 48 Hours)
+═══════════════════════════════════════════════════════════════════
+
+  Current Risk: ⚠️ HIGH
+  Signal Adjustment: -10% probability
+
+Warnings:
+  ⚠️ Fed Interest Rate in 23h - Reduce positions
+
+TIME (ET)      EVENT                         IMPACT   FORECAST
+─────────────────────────────────────────────────────────────────────
+Jan 29 10:00   Fed Interest Rate Decision    🔴 HIGH   Hold 5.5%
+Jan 30 08:30   GDP (Q4)                      🔴 HIGH   +2.1%
+Jan 30 08:30   Jobless Claims                🟡 MED    215K
+```
+
+### Global Market Indicators 🆕
+
+View global market context and correlations:
+
+```bash
+python main.py global
+```
+
+Example output:
+```
+🌍 GLOBAL MARKET INDICATORS
+═══════════════════════════════════════════════════════════════════
+
+  Market Sentiment: 🟢 RISK_ON
+  Risk Score: 35/100 (higher = more risk-off)
+  Signal Adjustment: +5%
+
+Key Indicators:
+───────────────────────────────────────────────────────────────────
+  VIX: 14.2 - 😴 Complacent
+  USD (DXY): NEUTRAL
+  10Y Treasury: 4.25%
+
+INDICATOR       PRICE        CHANGE     SIGNAL
+───────────────────────────────────────────────────────────────────
+VIX                14.20      -3.25%     🟢 BULLISH
+DXY               104.52      +0.18%     ⚪ NEUTRAL
+10Y Treasury        4.25      -1.20%     🟢 BULLISH
+Gold            2,035.40      -0.85%     🟢 BULLISH
+Crude Oil          76.82      +1.45%     ⚪ NEUTRAL
+S&P 500         4,890.32      +0.65%     🟢 BULLISH
+```
+
+### 🤖 AI Price Prediction (NEW!)
+
+Get AI-powered price predictions for any stock:
+
+```bash
+python main.py predict AAPL
+```
+
+Example output:
+```
+🤖 AI Price Prediction: AAPL
+
+  Model: amazon/chronos-t5-small
+
+  Fetching AAPL data... Done
+
+══════════════════════════════════════════════════
+  Current Price: $185.92
+
+  📈 Predicted Direction: UP
+  Expected Change: +2.35%
+
+  Confidence Interval (80%):
+    Low:  -0.82%
+    High: +4.15%
+
+  Daily Predictions:
+    Day 1: $186.45 (+0.29%)
+    Day 2: $187.12 (+0.65%)
+    Day 3: $188.05 (+1.15%)
+    Day 4: $189.23 (+1.78%)
+    Day 5: $190.29 (+2.35%)
+══════════════════════════════════════════════════
+```
+
+### 📰 News Sentiment Analysis (NEW!)
+
+Analyze news sentiment for any stock:
+
+```bash
+python main.py sentiment NVDA
+```
+
+Example output:
+```
+📰 Sentiment Analysis: NVDA
+
+  Model: DistilRoBERTa Financial
+
+  Fetching news for NVDA... Found 12 headlines
+
+════════════════════════════════════════════════════════════
+  🟢 Overall Sentiment: BULLISH
+  Score: +0.65 (range: -1 to +1)
+
+  Positive: 67%
+  Negative: 8%
+  Neutral: 25%
+
+Recent Headlines:
+────────────────────────────────────────────────────────────
+  🟢 NVIDIA Unveils New AI Chips, Stock Surges...
+     Reuters • 2024-01-28
+  🟢 Analysts Raise NVIDIA Price Target After Strong...
+     Bloomberg • 2024-01-27
+  ⚪ NVIDIA Partners with Microsoft on Cloud Computing...
+     CNBC • 2024-01-27
+════════════════════════════════════════════════════════════
+```
+
+### AI-Enhanced Scan
+
+When ML features are enabled, the scan command includes AI data:
+
+```bash
+python main.py scan
+```
+
+```
+TICKER   │ SIG  │ PROB │ AI PRED   │ SENTIMENT  │ PRICE
+─────────┼──────┼──────┼───────────┼────────────┼──────────
+🟢 NVDA  │ BUY  │ 78.5%│ ↑ +3.2%   │ 🟢 0.65    │   $875.32 ⭐
+🟢 AMD   │ BUY  │ 72.1%│ ↑ +2.1%   │ 🟢 0.42    │   $178.45 ⭐
+🔴 COIN  │ SELL │ 68.3%│ ↓ -2.8%   │ 🔴 -0.35   │   $125.67
+🟡 AAPL  │ HOLD │ 52.0%│ → +0.3%   │ 🟡 0.12    │   $185.92
+```
+
+Legend:
+- `🤖✅` - AI agrees with technical signal
+- `🤖⚠️` - AI diverges from technical signal
 
 ### Performance Statistics 🆕
 
@@ -368,11 +591,15 @@ DayTrader-Forecast/
 │   ├── __init__.py
 │   ├── technical.py     # Technical indicators + Multi-TF
 │   ├── signals.py       # Signal generation
-│   └── market.py        # Market context (SPY/QQQ) 🆕
+│   ├── market.py        # Market context (SPY/QQQ)
+│   ├── events.py        # Economic event risk analyzer 🆕
+│   └── global_market.py # Global indicators analyzer 🆕
 ├── data/
 │   ├── __init__.py
 │   ├── fetcher.py       # Data fetching (yfinance)
-│   └── predictions.db   # SQLite database 🆕
+│   ├── forex.py         # Forex data fetcher 🆕
+│   ├── events.py        # Economic calendar fetcher 🆕
+│   └── predictions.db   # SQLite database
 ├── tracking/            # 🆕
 │   ├── __init__.py
 │   └── tracker.py       # Performance tracking
