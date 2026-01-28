@@ -70,7 +70,7 @@ class PaperTradeSession:
     @property
     def total_pnl_pct(self) -> float:
         """Total P&L as percentage."""
-        return (self.total_pnl / self.initial_balance) * 100
+        return (self.total_pnl / self.initial_balance) * 100 if self.initial_balance > 0 else 0
     
     @property
     def win_rate(self) -> float:

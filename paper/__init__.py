@@ -3,6 +3,6 @@ Paper trading module.
 Simulates live trading with virtual money.
 """
 
-from .simulator import PaperTrader, Position, PaperTradeSession
+from .simulator import PaperTrader, Position, PaperTradeSession, ClosedPosition
 
-__all__ = ['PaperTrader', 'Position', 'PaperTradeSession']
+__all__ = ['PaperTrader', 'Position', 'PaperTradeSession', 'ClosedPosition']

@@ -34,19 +34,20 @@ class MarketContext:
     description: str = ""
     
     def to_dict(self) -> Dict:
+        """Convert to JSON-serializable dictionary."""
         return {
             'spy_trend': self.spy_trend.value,
             'qqq_trend': self.qqq_trend.value,
             'overall_trend': self.overall_trend.value,
-            'spy_change_pct': self.spy_change_pct,
-            'qqq_change_pct': self.qqq_change_pct,
-            'spy_above_20sma': self.spy_above_20sma,
-            'spy_above_50sma': self.spy_above_50sma,
-            'qqq_above_20sma': self.qqq_above_20sma,
-            'qqq_above_50sma': self.qqq_above_50sma,
-            'vix_level': self.vix_level,
-            'confidence_adjustment': self.confidence_adjustment,
-            'description': self.description
+            'spy_change_pct': float(self.spy_change_pct),
+            'qqq_change_pct': float(self.qqq_change_pct),
+            'spy_above_20sma': bool(self.spy_above_20sma),
+            'spy_above_50sma': bool(self.spy_above_50sma),
+            'qqq_above_20sma': bool(self.qqq_above_20sma),
+            'qqq_above_50sma': bool(self.qqq_above_50sma),
+            'vix_level': float(self.vix_level) if self.vix_level else None,
+            'confidence_adjustment': float(self.confidence_adjustment),
+            'description': str(self.description)
         }
 
 

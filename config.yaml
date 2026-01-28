@@ -1,7 +1,9 @@
 # DayTrader-Forecast Configuration
-# Customize your watchlist and analysis settings
+# Professional-Grade Day Trading Analysis Tool
 
-# Default watchlist - popular day trading stocks
+# ═══════════════════════════════════════════════════════════
+# WATCHLIST
+# ═══════════════════════════════════════════════════════════
 watchlist:
   - AAPL   # Apple
   - MSFT   # Microsoft
@@ -14,7 +16,9 @@ watchlist:
   - SPY    # S&P 500 ETF
   - QQQ    # Nasdaq 100 ETF
 
-# Technical analysis settings
+# ═══════════════════════════════════════════════════════════
+# TECHNICAL ANALYSIS SETTINGS
+# ═══════════════════════════════════════════════════════════
 analysis:
   # RSI settings
   rsi_period: 14
@@ -38,7 +42,9 @@ analysis:
   # Volume analysis
   volume_ma_period: 20
 
-# Signal weights for probability scoring (must sum to 1.0)
+# ═══════════════════════════════════════════════════════════
+# SIGNAL WEIGHTS (must sum to 1.0)
+# ═══════════════════════════════════════════════════════════
 weights:
   rsi: 0.20
   macd: 0.20
@@ -47,13 +53,102 @@ weights:
   volume: 0.15
   support_resistance: 0.15
 
-# Risk management
+# ═══════════════════════════════════════════════════════════
+# RISK MANAGEMENT
+# ═══════════════════════════════════════════════════════════
 risk:
+  # Account settings
+  account_size: 10000       # Paper/real account size
+  
+  # Per-trade limits
+  max_risk_per_trade: 1.0   # Maximum % to risk per trade
   stop_loss_percent: 2.0    # Default stop loss %
   take_profit_percent: 4.0  # Default take profit %
-  risk_reward_ratio: 2.0    # Minimum R:R ratio
+  min_risk_reward: 2.0      # Minimum R:R ratio to take trade
+  max_position_pct: 10      # Max % of account per position
+  
+  # Daily limits
+  daily_loss_limit: 3.0     # Stop trading after X% daily loss
+  max_trades_per_day: 10    # Maximum trades per day
+  max_open_positions: 5     # Maximum concurrent positions
 
-# Report settings
+# ═══════════════════════════════════════════════════════════
+# SIGNAL FILTERS
+# ═══════════════════════════════════════════════════════════
+filters:
+  # Minimum probability to generate signal
+  min_probability: 40
+  
+  # Minimum probability for HIGH CONFIDENCE signal
+  high_confidence_threshold: 65
+  
+  # Minimum indicators that must agree
+  min_indicator_agreement: 3
+  
+  # Volume requirements
+  require_volume_confirmation: true
+  min_volume_ratio: 0.8     # Minimum ratio vs average volume
+  
+  # Market context filtering
+  respect_market_context: true
+
+# ═══════════════════════════════════════════════════════════
+# MULTI-TIMEFRAME ANALYSIS
+# ═══════════════════════════════════════════════════════════
+multi_tf:
+  enabled: true
+  min_alignment: 0.6        # 60% of timeframes must agree
+  min_confluence: 3         # At least 3 timeframes aligned
+
+# ═══════════════════════════════════════════════════════════
+# NEWS & EARNINGS FILTER
+# ═══════════════════════════════════════════════════════════
+news_filter:
+  earnings_buffer_days: 3   # Avoid trading within X days of earnings
+  avoid_earnings: true      # Skip stocks with upcoming earnings
+  check_news: true          # Check for major news
+
+# ═══════════════════════════════════════════════════════════
+# PRE-MARKET SCANNER
+# ═══════════════════════════════════════════════════════════
+premarket:
+  min_gap_percent: 2.0      # Minimum gap to flag
+  min_volume_ratio: 1.5     # Minimum pre-market volume ratio
+
+# ═══════════════════════════════════════════════════════════
+# ALERTS
+# ═══════════════════════════════════════════════════════════
+alerts:
+  email: "Abdiazizmohamed408@gmail.com"
+  min_probability: 65       # Only alert for high-probability signals
+  alert_on_sell: true       # Send alerts for SELL signals too
+  max_alerts_per_hour: 10   # Rate limiting
+
+# ═══════════════════════════════════════════════════════════
+# BACKTESTING
+# ═══════════════════════════════════════════════════════════
+backtest:
+  max_hold_days: 10         # Maximum days to hold position
+  min_probability: 40       # Minimum probability to take trade in backtest
+
+# ═══════════════════════════════════════════════════════════
+# PAPER TRADING
+# ═══════════════════════════════════════════════════════════
+paper_trading:
+  starting_balance: 10000   # Starting paper balance
+  auto_manage: true         # Auto-close at stop/target
+
+# ═══════════════════════════════════════════════════════════
+# DATA VALIDATION
+# ═══════════════════════════════════════════════════════════
+validation:
+  max_missing_pct: 5        # Max % missing data allowed
+  max_stale_days: 5         # Max days old data can be
+  outlier_std: 5            # Standard deviations for outlier detection
+
+# ═══════════════════════════════════════════════════════════
+# REPORT SETTINGS
+# ═══════════════════════════════════════════════════════════
 reports:
   output_dir: "./output"
   top_picks_count: 5

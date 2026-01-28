@@ -1,6 +1,6 @@
 # 📈 DayTrader-Forecast
 
-A Python-based technical analysis tool for day trading that scans stocks and generates probability-based trading signals.
+A Python-based technical analysis tool for day trading that scans stocks and generates probability-based trading signals with **performance tracking**, **backtesting**, and **paper trading** capabilities.
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
@@ -24,37 +24,63 @@ A Python-based technical analysis tool for day trading that scans stocks and gen
 
 ## 🎯 Features
 
-- **Technical Analysis**
-  - RSI (Relative Strength Index)
-  - MACD (Moving Average Convergence Divergence)
-  - SMA/EMA (Simple/Exponential Moving Averages)
-  - Bollinger Bands
-  - Volume Analysis
-  - Support/Resistance Levels
+### Technical Analysis
+- **RSI** (Relative Strength Index)
+- **MACD** (Moving Average Convergence Divergence)
+- **SMA/EMA** (Simple/Exponential Moving Averages)
+- **Bollinger Bands**
+- **Volume Analysis** with confirmation (1.5x average threshold)
+- **Support/Resistance Levels**
 
-- **Probability Scoring**
-  - Weighted scoring system (0-100%)
-  - Multiple indicator agreement
-  - Bullish/Bearish/Neutral classification
+### Multi-Timeframe Analysis 🆕
+- Analyzes 15min, 1hr, 4hr, and Daily timeframes
+- Calculates alignment score across timeframes
+- Higher confidence when multiple timeframes agree
 
-- **Signal Generation**
-  - BUY/SELL/HOLD recommendations
-  - Entry price, target, and stop-loss levels
-  - Risk/Reward ratio calculations
+### Market Context 🆕
+- Checks SPY and QQQ trends before generating signals
+- Adjusts signal confidence based on overall market direction
+- VIX level monitoring for volatility context
 
-- **📊 Prediction Tracking & Backtesting**
-  - Automatic logging of all predictions to SQLite database
-  - Outcome verification (WIN/LOSS based on target/stop-loss)
-  - Win rate and profit factor calculation
-  - Performance breakdown by ticker and indicator
-  - Adaptive weight optimization based on historical accuracy
+### Probability Scoring
+- Weighted scoring system (0-100%)
+- Multiple indicator agreement
+- Bullish/Bearish/Neutral classification
+- Volume confirmation bonus
 
-- **Reports**
-  - Daily market scan reports
-  - Individual stock analysis
-  - Performance accuracy reports
-  - Markdown export
-  - Email delivery (optional)
+### Signal Generation
+- BUY/SELL/HOLD recommendations
+- Entry price, target, and stop-loss levels
+- Risk/Reward ratio calculations
+- Volume confirmation status
+
+### Performance Tracking 🆕
+- SQLite database for prediction logging
+- Tracks every signal with entry, target, and stop-loss
+- Automatic outcome checking (WIN/LOSS)
+- Win rate, profit factor, and per-ticker statistics
+
+### Backtesting Engine 🆕
+- Test strategies on historical data
+- Simulated P&L tracking
+- Detailed trade-by-trade results
+- Performance metrics (Sharpe ratio, max drawdown)
+
+### Paper Trading 🆕
+- Virtual trading with configurable balance
+- Automatic position management
+- Real-time price updates
+- Portfolio tracking over time
+
+### Email Alerts 🆕
+- Automatic alerts for high-confidence signals (>75%)
+- Configurable SMTP settings
+
+### Reports
+- Daily market scan reports
+- Individual stock analysis
+- Markdown export
+- Email delivery (optional)
 
 ## 📦 Installation
 
@@ -94,17 +120,23 @@ Edit `config.yaml` to customize:
 python main.py scan
 ```
 
-This scans all stocks in your watchlist and displays:
-- Current signals (BUY/SELL/HOLD)
-- Probability scores
-- Current prices
-- Market sentiment
+With minimum probability filter:
+
+```bash
+python main.py scan --min-prob 70   # Only show 70%+ signals
+```
 
 ### Analyze a Specific Stock
 
 ```bash
 python main.py analyze AAPL
 ```
+
+This now includes:
+- Multi-timeframe analysis breakdown
+- Market context (SPY/QQQ trend)
+- Volume confirmation status
+- Timeframe alignment score
 
 Options:
 - `--save` or `-s`: Save analysis to a markdown file
@@ -126,76 +158,107 @@ Options:
 python main.py report --email
 ```
 
-### Verify Predictions
+### Backtesting 🆕
 
-Check if pending predictions hit their targets or stop-losses:
+Test your strategy on historical data:
 
 ```bash
-python main.py verify
+python main.py backtest --days 30
 ```
 
 Options:
-- `--days` or `-d`: Maximum days to track predictions (default: 10)
+- `--days` or `-d`: Number of days to test (default: 30)
+- `--min-prob`: Minimum probability for trades (default: 50)
 
-```bash
-python main.py verify --days 5
+Example output:
+```
+📊 BACKTEST RESULTS
+══════════════════════════════════════════════════
+
+📅 Period: 2024-01-01 to 2024-01-30
+📆 Days Tested: 30
+
+💰 PERFORMANCE
+──────────────────────────────
+Initial Balance:  $10,000.00
+Final Balance:    $10,856.32
+Total Return:     +8.56%
+Max Drawdown:     3.21%
+
+📈 TRADE STATISTICS
+──────────────────────────────
+Total Trades:     45
+Wins:             28
+Losses:           17
+Win Rate:         62.2%
+
+Avg Profit:       +2.85%
+Avg Loss:         -1.67%
+Profit Factor:    1.72
+Sharpe Ratio:     1.45
 ```
 
-### View Performance
+### Paper Trading 🆕
 
-Display model accuracy and prediction statistics:
+Start a virtual trading session:
+
+```bash
+python main.py paper
+```
+
+Options:
+- `--reset`: Start a new session
+- `--balance`: Set starting balance (default: $10,000)
+- `--auto`: Automatically execute signals
+
+```bash
+# Start with custom balance
+python main.py paper --balance 25000
+
+# Auto-execute signals based on current scan
+python main.py paper --auto
+
+# Reset and start fresh
+python main.py paper --reset
+```
+
+### Performance Statistics 🆕
+
+View your historical accuracy:
 
 ```bash
 python main.py performance
 ```
 
-Options:
-- `--save` or `-s`: Save full performance report to markdown file
-
-```bash
-python main.py performance --save
-```
-
 Example output:
 ```
-📈 PREDICTION PERFORMANCE
-══════════════════════════════════════════════════════════════
+📊 PERFORMANCE SUMMARY
+═════════════════════════════════════════════
 
-  Model Accuracy:
-  [████████████████████░░░░░░░░░░] 67.5%
-  27 wins / 13 losses
+Total Predictions: 156
+Wins: 98 | Losses: 58
+Win Rate: 62.8%
 
-  Key Metrics:
-    Total Predictions: 45
-    Avg Win: +3.42%
-    Avg Loss: -1.85%
-    Profit Factor: 2.45
-```
+Avg Profit: +3.2%
+Avg Loss: -1.8%
+Profit Factor: 1.78
+Total Return: +127.3%
 
-### Optimize Weights
+📈 PERFORMANCE BY TICKER
+─────────────────────────────────────────────
+TICKER   │ TRADES │ WIN RATE │   RETURN
+─────────┼────────┼──────────┼──────────
+NVDA     │     23 │    75.0% │   +42.3%
+AAPL     │     18 │    66.7% │   +28.1%
+MSFT     │     15 │    60.0% │   +18.5%
+TSLA     │     20 │    45.0% │    -5.2%
 
-Calculate optimal indicator weights based on historical performance:
-
-```bash
-python main.py optimize
+🏆 Best Performer:  NVDA (75% win rate)
+📉 Worst Performer: TSLA (45% win rate)
 ```
 
 Options:
-- `--apply` or `-a`: Show how to apply optimized weights
-- `--min-trades`: Minimum trades for weight adjustment (default: 10)
-- `--learning-rate`: Learning rate for adjustments (default: 0.1)
-
-```bash
-python main.py optimize --apply
-```
-
-### Adaptive Scanning
-
-Use performance-optimized weights when scanning:
-
-```bash
-python main.py scan --adaptive
-```
+- `--days`: Filter to last N days
 
 ## ⚙️ Configuration
 
@@ -209,6 +272,8 @@ watchlist:
   - GOOGL
   - TSLA
   - NVDA
+  - SPY
+  - QQQ
 
 # Technical analysis settings
 analysis:
@@ -234,11 +299,14 @@ weights:
 risk:
   stop_loss_percent: 2.0
   take_profit_percent: 4.0
+
+# Volume confirmation (optional)
+require_volume_confirmation: false
 ```
 
 ### Email Configuration
 
-To enable email reports, create a `.env` file:
+To enable email alerts for high-confidence signals, create a `.env` file:
 
 ```bash
 cp .env.example .env
@@ -253,6 +321,8 @@ SMTP_USER=your-email@gmail.com
 SMTP_PASSWORD=your-app-password
 EMAIL_TO=recipient@example.com
 ```
+
+High-confidence signals (>75%) will automatically trigger email alerts.
 
 ## 📊 Technical Indicators Explained
 
@@ -273,40 +343,22 @@ EMAIL_TO=recipient@example.com
 - **Price near upper band:** Potentially overbought
 - **Price near lower band:** Potentially oversold
 
-## 📊 Prediction Tracking System
+### Volume Confirmation 🆕
+- Signal is **confirmed** when volume > 1.5x average
+- Adds +5% to probability when confirmed
+- Reduces -3% when volume is below average
 
-The tool automatically tracks all predictions to measure accuracy over time.
-
-### How It Works
-
-1. **Logging**: When you run `scan` or `analyze`, BUY/SELL signals are logged to a SQLite database with:
-   - Entry price, target, stop-loss
-   - Probability score
-   - Individual indicator scores (RSI, MACD, etc.)
-
-2. **Verification**: Run `verify` to check if predictions hit their targets:
-   - **WIN**: Price reached target before stop-loss
-   - **LOSS**: Price hit stop-loss before target
-   - **EXPIRED**: Neither hit within the tracking period
-
-3. **Performance Analysis**: Run `performance` to see:
-   - Overall win rate
-   - Average profit/loss per trade
-   - Profit factor (gross profit / gross loss)
-   - Performance by ticker
-   - Indicator effectiveness
-
-4. **Adaptive Learning**: Run `optimize` to calculate which indicators are most predictive and adjust weights accordingly.
-
-### Database Location
-
-Predictions are stored in `./data/predictions.db` (SQLite).
+### Multi-Timeframe Alignment 🆕
+- Analyzes 15min, 1hr, 4hr, Daily timeframes
+- Strong alignment (80%+): +10% probability bonus
+- Good alignment (70%+): +5% probability bonus
+- Conflicting signals (<40%): -5% probability penalty
 
 ## 📁 Project Structure
 
 ```
 DayTrader-Forecast/
-├── main.py              # CLI entry point
+├── main.py              # CLI entry point (all commands)
 ├── config.yaml          # Configuration file
 ├── requirements.txt     # Python dependencies
 ├── README.md            # This file
@@ -314,23 +366,29 @@ DayTrader-Forecast/
 ├── .gitignore          # Git ignore rules
 ├── analyzers/
 │   ├── __init__.py
-│   ├── technical.py     # Technical indicators
-│   └── signals.py       # Signal generation
+│   ├── technical.py     # Technical indicators + Multi-TF
+│   ├── signals.py       # Signal generation
+│   └── market.py        # Market context (SPY/QQQ) 🆕
 ├── data/
 │   ├── __init__.py
 │   ├── fetcher.py       # Data fetching (yfinance)
-│   └── predictions.db   # SQLite database (auto-created)
-├── tracking/
+│   └── predictions.db   # SQLite database 🆕
+├── tracking/            # 🆕
 │   ├── __init__.py
-│   ├── database.py      # SQLite database handler
-│   ├── tracker.py       # Prediction logging & verification
-│   └── performance.py   # Performance analysis
+│   └── tracker.py       # Performance tracking
+├── backtesting/         # 🆕
+│   ├── __init__.py
+│   └── engine.py        # Backtesting engine
+├── paper/               # 🆕
+│   ├── __init__.py
+│   └── simulator.py     # Paper trading
 ├── reports/
 │   ├── __init__.py
 │   └── generator.py     # Report generation
-└── utils/
-    ├── __init__.py
-    └── helpers.py       # Utility functions
+├── utils/
+│   ├── __init__.py
+│   └── helpers.py       # Utility functions
+└── output/              # Generated reports
 ```
 
 ## 🔧 Dependencies
@@ -345,21 +403,74 @@ DayTrader-Forecast/
 
 ## 📝 Example Output
 
+### Scan Output
 ```
 📈 DayTrader-Forecast
 ═══════════════════════════════════════════════════════
 
+🌍 MARKET CONTEXT
+────────────────────────────────────────
+Market is bullish 📈. SPY: bullish 📈, QQQ: bullish 📈
+
+SPY: +0.85% | Above 20 SMA: ✅ | Above 50 SMA: ✅
+QQQ: +1.12% | Above 20 SMA: ✅ | Above 50 SMA: ✅
+VIX: 14.32 (🟢 Low)
+
 📊 SCAN RESULTS
+═════════════════════════════════════════════════════════════════
+
+TICKER   │ SIG  │  PROB │      PRICE │ SENTIMENT │ VOL
+─────────┼──────┼───────┼────────────┼───────────┼─────
+🟢 NVDA  │ BUY  │  82.5% │    $875.32 │ BULLISH   │ 📊
+🟢 AAPL  │ BUY  │  68.2% │    $178.90 │ BULLISH   │ 📊
+🟡 MSFT  │ HOLD │  52.1% │    $415.67 │ NEUTRAL   │
+🔴 TSLA  │ SELL │  61.8% │    $185.42 │ BEARISH   │
+
+🟢 BUY: 2  │  🔴 SELL: 1  │  🟡 HOLD: 1  │  ⭐ HIGH CONF: 1
+```
+
+### Analyze Output
+```
+═══════════════════════════════════════════════════════
+🟢 Apple Inc. (AAPL)
 ═══════════════════════════════════════════════════════
 
-TICKER   │ SIG  │  PROB │      PRICE │ SENTIMENT
-─────────┼──────┼───────┼────────────┼───────────
-🟢 NVDA  │ BUY  │  78.5% │    $875.32 │ BULLISH
-🟢 AAPL  │ BUY  │  65.2% │    $178.90 │ BULLISH
-🟡 MSFT  │ HOLD │  52.1% │    $415.67 │ NEUTRAL
-🔴 TSLA  │ SELL │  61.8% │    $185.42 │ BEARISH
+🌍 MARKET CONTEXT
+────────────────────────────────────────
+Market is bullish 📈. SPY: bullish 📈, QQQ: bullish 📈
 
-🟢 BUY: 2  │  🔴 SELL: 1  │  🟡 HOLD: 1
+  Current Price: $178.90
+  Change: +1.25%
+
+  Signal: BUY
+  Probability: 68.2%
+  Sentiment: BULLISH
+  Volume Confirmed: ✅ Yes
+  Timeframe Alignment: 75%
+
+  Stop Loss: $174.20
+  Target: $186.50
+  Risk/Reward: 1.62
+
+  Technical Indicators:
+    RSI(14): 58.3
+    MACD: 0.8542
+    SMA(20): $176.45
+    SMA(50): $172.30
+    Volume Ratio: 1.82x
+
+  Multi-Timeframe Analysis:
+    15m : BULLISH
+    1h  : BULLISH
+    4h  : NEUTRAL
+    1d  : BULLISH
+    Overall: BULLISH
+
+  Signal Factors:
+    • Price trading above long-term moving average (bullish)
+    • MACD bullish crossover detected
+    • ✅ Volume confirmed (1.8x average)
+    • ✅ Multi-timeframe alignment: 75%
 ```
 
 ## 🤝 Contributing
@@ -384,3 +495,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **Remember:** Trading involves risk. Use this tool responsibly and always do your own research.
+
+## 📧 Contact
+
+For questions or feedback: Abdiazizmohamed408@gmail.com

@@ -129,7 +129,9 @@ class SignalGenerator:
         return self.last_scores
     
     def generate_signal(
-        self, ticker: str, analysis: Dict
+        self, ticker: str, analysis: Dict,
+        timeframe_alignment: Optional[float] = None,
+        market_context: Optional[str] = None
     ) -> Optional[TradingSignal]:
         """
         Generate a trading signal from technical analysis.
@@ -137,12 +139,19 @@ class SignalGenerator:
         Args:
             ticker: Stock symbol
             analysis: Dictionary from TechnicalAnalyzer.analyze()
+            timeframe_alignment: Multi-timeframe alignment score (0-100)
+            market_context: Description of overall market condition
             
         Returns:
             TradingSignal object or None if analysis is invalid
         """
         if analysis is None:
             return None
+        
+        # Check volume confirmation
+        volume_info = analysis.get('volume', {})
+        volume_ratio = volume_info.get('volume_ratio', 1.0)
+        volume_confirmed = volume_ratio >= self.VOLUME_THRESHOLD
         
         # Calculate individual indicator scores
         scores = self._calculate_scores(analysis)
@@ -168,8 +177,37 @@ class SignalGenerator:
             bullish_prob, bearish_prob
         )
         
+        # Apply volume confirmation bonus/penalty
+        if signal_type != SignalType.HOLD:
+            if volume_confirmed:
+                probability = min(100, probability + 5)
+            else:
+                probability = max(0, probability - 3)
+        
+        # Apply timeframe alignment bonus
+        if timeframe_alignment is not None and signal_type != SignalType.HOLD:
+            if timeframe_alignment >= 80:
+                probability = min(100, probability + 10)
+            elif timeframe_alignment >= 70:
+                probability = min(100, probability + 5)
+            elif timeframe_alignment < 40:
+                probability = max(0, probability - 5)
+        
         # Collect reasons
         reasons = self._collect_reasons(analysis, scores)
+        
+        # Add volume confirmation status to reasons
+        if volume_confirmed:
+            reasons.append(f"✅ Volume confirmed ({volume_ratio:.1f}x average)")
+        elif volume_ratio < 0.8:
+            reasons.append(f"⚠️ Low volume ({volume_ratio:.1f}x average)")
+        
+        # Add timeframe alignment to reasons
+        if timeframe_alignment is not None:
+            if timeframe_alignment >= 70:
+                reasons.append(f"✅ Multi-timeframe alignment: {timeframe_alignment:.0f}%")
+            elif timeframe_alignment < 40:
+                reasons.append(f"⚠️ Conflicting timeframes: {timeframe_alignment:.0f}%")
         
         # Calculate price targets
         entry_price = analysis['current_price']
@@ -197,7 +235,10 @@ class SignalGenerator:
             stop_loss=stop_loss,
             target_price=target_price,
             risk_reward_ratio=risk_reward,
-            reasons=reasons
+            reasons=reasons,
+            volume_confirmed=volume_confirmed,
+            timeframe_alignment=timeframe_alignment,
+            market_context=market_context
         )
     
     def _calculate_scores(self, analysis: Dict) -> Dict:

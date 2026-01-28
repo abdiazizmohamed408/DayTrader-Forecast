@@ -1,0 +1,7 @@
+{
+  "balance": 10000,
+  "starting_balance": 10000,
+  "positions": [],
+  "trades": [],
+  "high_water_mark": 10000
+}
