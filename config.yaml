@@ -2,19 +2,48 @@
 # Professional-Grade Day Trading Analysis Tool
 
 # ═══════════════════════════════════════════════════════════
-# WATCHLIST
+# WATCHLIST (30 High-Volume Day Trading Stocks)
 # ═══════════════════════════════════════════════════════════
 watchlist:
+  # Mega Cap Tech
   - AAPL   # Apple
   - MSFT   # Microsoft
   - GOOGL  # Alphabet
   - AMZN   # Amazon
-  - TSLA   # Tesla
   - NVDA   # NVIDIA
   - META   # Meta Platforms
+  - TSLA   # Tesla
+  
+  # High Beta / Volatile
   - AMD    # Advanced Micro Devices
+  - COIN   # Coinbase
+  - MARA   # Marathon Digital (crypto)
+  - RIOT   # Riot Platforms (crypto)
+  - PLTR   # Palantir
+  - SOFI   # SoFi Technologies
+  - RIVN   # Rivian
+  - LCID   # Lucid Motors
+  
+  # Semiconductors
+  - INTC   # Intel
+  - MU     # Micron
+  - QCOM   # Qualcomm
+  - ARM    # ARM Holdings
+  - AVGO   # Broadcom
+  
+  # Popular Momentum
+  - NFLX   # Netflix
+  - CRM    # Salesforce
+  - UBER   # Uber
+  - SQ     # Block (Square)
+  - SHOP   # Shopify
+  - SNOW   # Snowflake
+  - CRWD   # CrowdStrike
+  
+  # ETFs
   - SPY    # S&P 500 ETF
   - QQQ    # Nasdaq 100 ETF
+  - IWM    # Russell 2000 ETF
 
 # ═══════════════════════════════════════════════════════════
 # TECHNICAL ANALYSIS SETTINGS

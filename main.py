@@ -1,52 +1,56 @@
 #!/usr/bin/env python3
 """
-DayTrader-Forecast - Day Trading Probability Scanner
+DayTrader-Forecast - Professional Day Trading Analysis Tool
 
-A technical analysis tool that scans stocks and generates trading signals
-with probability scores based on multiple indicators.
-
-Usage:
-    python main.py scan                     # Scan all watchlist stocks
-    python main.py scan --min-prob 70       # Only show 70%+ probability signals
-    python main.py analyze AAPL             # Analyze specific stock
-    python main.py report                   # Generate daily report
-    python main.py report --email           # Generate and email report
-    python main.py backtest --days 30       # Backtest on historical data
-    python main.py paper                    # Start paper trading session
-    python main.py performance              # Show historical accuracy
+A bulletproof technical analysis system with:
+- Multi-timeframe analysis
+- Market context awareness
+- Risk management
+- News/earnings filtering
+- Paper trading simulation
+- Backtesting engine
+- Email alerts
 
 ⚠️  DISCLAIMER: This is for educational purposes only. Not financial advice.
 """
 
 import argparse
-import os
 import sys
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from colorama import Fore, Style, init as colorama_init
 
-from analyzers.technical import TechnicalAnalyzer, MultiTimeframeAnalyzer
+from analyzers.technical import TechnicalAnalyzer
 from analyzers.signals import SignalGenerator, SignalType, TradingSignal
-from analyzers.market import MarketAnalyzer
+from analyzers.multi_timeframe import MultiTimeframeAnalyzer
+from analyzers.market_context import MarketContextAnalyzer, MarketRegime
+from analyzers.risk_manager import RiskManager
+from analyzers.news_filter import NewsAndEarningsFilter
+from analyzers.premarket import PremarketScanner
+from backtesting.engine import BacktestEngine
 from data.fetcher import DataFetcher
+from paper.simulator import PaperTrader
 from reports.generator import ReportGenerator
 from tracking.tracker import PredictionTracker
-from backtesting.engine import BacktestEngine
-from paper.simulator import PaperTrader
-from utils.helpers import load_config, setup_logging, format_currency
+from utils.helpers import load_config, format_currency, ensure_dir
+from utils.alerts import AlertSystem
+from utils.validator import DataValidator, ErrorHandler
 
 
-# Initialize colorama for cross-platform colored output
 colorama_init()
 
-
 BANNER = f"""
-{Fore.CYAN}╔══════════════════════════════════════════════════════════════╗
-║                                                              ║
-║   {Fore.YELLOW}📈 DayTrader-Forecast{Fore.CYAN}                                     ║
-║   {Fore.WHITE}Technical Analysis & Probability Scanner{Fore.CYAN}                  ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝{Style.RESET_ALL}
+{Fore.CYAN}╔══════════════════════════════════════════════════════════════════╗
+║                                                                  ║
+║   {Fore.YELLOW}📈 DayTrader-Forecast PRO{Fore.CYAN}                                      ║
+║   {Fore.WHITE}Professional Day Trading Analysis System{Fore.CYAN}                       ║
+║                                                                  ║
+║   {Fore.GREEN}✓ Multi-Timeframe  ✓ Risk Management  ✓ Backtesting{Fore.CYAN}            ║
+║   {Fore.GREEN}✓ Market Context   ✓ News Filter      ✓ Paper Trading{Fore.CYAN}          ║
+║                                                                  ║
+╚══════════════════════════════════════════════════════════════════╝{Style.RESET_ALL}
 """
 
 DISCLAIMER = f"""
@@ -59,15 +63,19 @@ This tool is for EDUCATIONAL PURPOSES ONLY.
 """
 
 
+def get_db_path() -> str:
+    db_dir = Path("./data")
+    db_dir.mkdir(exist_ok=True)
+    return str(db_dir / "predictions.db")
+
+
 def print_banner():
-    """Print the application banner."""
     print(BANNER)
     print(DISCLAIMER)
     print()
 
 
-def format_signal_line(signal: TradingSignal) -> str:
-    """Format a signal for console output."""
+def format_signal_line(signal: TradingSignal, confidence: str = "") -> str:
     if signal.signal_type == SignalType.BUY:
         color = Fore.GREEN
         emoji = "🟢"
@@ -78,213 +86,196 @@ def format_signal_line(signal: TradingSignal) -> str:
         color = Fore.YELLOW
         emoji = "🟡"
     
-    vol_icon = "📊" if signal.volume_confirmed else ""
+    conf_str = f" {Fore.CYAN}[{confidence}]{Style.RESET_ALL}" if confidence else ""
     
     return (
         f"{emoji} {color}{signal.ticker:6s}{Style.RESET_ALL} │ "
         f"{signal.signal_type.value:4s} │ "
         f"{signal.probability:5.1f}% │ "
-        f"{format_currency(signal.entry_price):>10s} │ "
-        f"{signal.sentiment.value:8s} │ {vol_icon}"
+        f"{format_currency(signal.entry_price):>10s}{conf_str}"
     )
 
 
-def send_high_confidence_email(signal: TradingSignal, config: Dict):
-    """Send email alert for high-confidence signals."""
-    try:
-        import smtplib
-        from email.mime.text import MIMEText
-        from email.mime.multipart import MIMEMultipart
-        from dotenv import load_dotenv
-        
-        load_dotenv()
-        
-        smtp_host = os.getenv('SMTP_HOST')
-        smtp_port = int(os.getenv('SMTP_PORT', 587))
-        smtp_user = os.getenv('SMTP_USER')
-        smtp_pass = os.getenv('SMTP_PASSWORD')
-        email_to = os.getenv('EMAIL_TO', 'Abdiazizmohamed408@gmail.com')
-        
-        if not all([smtp_host, smtp_user, smtp_pass]):
-            return  # SMTP not configured
-        
-        subject = f"🚨 HIGH CONFIDENCE SIGNAL: {signal.ticker} {signal.signal_type.value} ({signal.probability:.1f}%)"
-        
-        body = f"""
-        High Confidence Trading Signal Alert
-        =====================================
-        
-        Ticker: {signal.ticker}
-        Signal: {signal.signal_type.value}
-        Probability: {signal.probability:.1f}%
-        Entry Price: ${signal.entry_price:.2f}
-        Target: ${signal.target_price:.2f}
-        Stop Loss: ${signal.stop_loss:.2f}
-        Risk/Reward: {signal.risk_reward_ratio:.2f}
-        
-        Volume Confirmed: {'Yes' if signal.volume_confirmed else 'No'}
-        Timeframe Alignment: {signal.timeframe_alignment:.0f}% if signal.timeframe_alignment else 'N/A'
-        
-        Reasons:
-        {chr(10).join('• ' + r for r in signal.reasons)}
-        
-        ---
-        ⚠️ DISCLAIMER: This is not financial advice. Trade at your own risk.
-        """
-        
-        msg = MIMEMultipart()
-        msg['From'] = smtp_user
-        msg['To'] = email_to
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
-        
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.send_message(msg)
-        
-        print(f"  {Fore.GREEN}📧 Email alert sent for {signal.ticker}{Style.RESET_ALL}")
-        
-    except Exception as e:
-        # Silently fail - email is optional
-        pass
-
-
 def cmd_scan(config: Dict, args: argparse.Namespace) -> int:
-    """
-    Scan all watchlist stocks.
-    
-    Args:
-        config: Configuration dictionary
-        args: Command line arguments
-        
-    Returns:
-        Exit code (0 for success)
-    """
-    min_prob = getattr(args, 'min_prob', 0) or 0
-    
-    print(f"\n{Fore.CYAN}📊 Scanning watchlist stocks...{Style.RESET_ALL}")
-    if min_prob > 0:
-        print(f"   (Filtering for {min_prob}%+ probability signals)")
-    print()
+    """Enhanced scan with all filters."""
+    print(f"\n{Fore.CYAN}📊 Professional Market Scan{Style.RESET_ALL}\n")
     
     watchlist = config.get('watchlist', [])
-    if not watchlist:
-        print(f"{Fore.RED}❌ No stocks in watchlist. Check config.yaml{Style.RESET_ALL}")
-        return 1
+    filters = config.get('filters', {})
+    min_prob = filters.get('high_confidence_threshold', 65)
     
+    # Initialize all analyzers
     fetcher = DataFetcher()
     analyzer = TechnicalAnalyzer(config)
     signal_gen = SignalGenerator(config)
-    market_analyzer = MarketAnalyzer(config)
-    tracker = PredictionTracker()
+    market_analyzer = MarketContextAnalyzer(config)
+    mtf_analyzer = MultiTimeframeAnalyzer(config)
+    news_filter = NewsAndEarningsFilter(config)
+    risk_manager = RiskManager(config)
+    tracker = PredictionTracker(get_db_path())
+    validator = DataValidator(config)
+    alert_system = AlertSystem(config)
     
-    # Get market context first
-    print(f"  Checking market conditions...", end=" ", flush=True)
+    # Check market context first
+    print(f"  {Fore.CYAN}Analyzing market context...{Style.RESET_ALL}")
     market_context = market_analyzer.analyze_market(fetcher)
-    if market_context:
-        print(f"{Fore.GREEN}Done{Style.RESET_ALL}")
-        print()
-        print(market_analyzer.format_context(market_context))
-    else:
-        print(f"{Fore.YELLOW}Unavailable{Style.RESET_ALL}")
-        market_context = None
+    
+    print(f"  Market: {market_context.regime.value}")
+    print(f"  SPY: {market_context.spy_trend} | QQQ: {market_context.qqq_trend}")
+    print(f"  Volatility: {market_context.volatility_level}")
+    print()
+    
+    # Check if trading is allowed
+    can_trade, trade_reason = risk_manager.check_can_trade()
+    if not can_trade:
+        print(f"{Fore.RED}⚠️ {trade_reason}{Style.RESET_ALL}\n")
     
     signals: List[TradingSignal] = []
     analyses: Dict = {}
+    high_confidence: List[TradingSignal] = []
+    filtered_out = 0
+    
+    print(f"  {Fore.CYAN}Scanning {len(watchlist)} stocks...{Style.RESET_ALL}\n")
     
     for ticker in watchlist:
-        print(f"  Analyzing {ticker}...", end=" ", flush=True)
+        print(f"  {ticker}...", end=" ", flush=True)
         
-        # Fetch data
+        # Fetch and validate data
         data = fetcher.get_stock_data(ticker)
-        if data is None:
-            print(f"{Fore.RED}Failed{Style.RESET_ALL}")
+        is_valid, issues = validator.validate_ohlcv(data, ticker)
+        
+        if not is_valid:
+            print(f"{Fore.RED}Invalid data{Style.RESET_ALL}")
             continue
         
-        # Analyze
+        if issues:
+            data = validator.clean_data(data)
+        
+        # Technical analysis
         analysis = analyzer.analyze(data)
         if analysis is None:
-            print(f"{Fore.YELLOW}Insufficient data{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Skip{Style.RESET_ALL}")
             continue
         
-        # Get market context string
-        mkt_ctx_str = market_context.description if market_context else None
+        # Generate base signal
+        signal = signal_gen.generate_signal(ticker, analysis)
+        if signal is None:
+            print(f"{Fore.YELLOW}No signal{Style.RESET_ALL}")
+            continue
         
-        # Generate signal with market context
-        signal = signal_gen.generate_signal(
-            ticker, 
-            analysis,
-            market_context=mkt_ctx_str
+        # Apply filters
+        confidence_notes = []
+        adjusted_probability = signal.probability
+        
+        # 1. Market context filter
+        if filters.get('respect_market_context', True):
+            is_valid_context, context_reason = market_analyzer.filter_signal(
+                signal.signal_type.value, market_context
+            )
+            if not is_valid_context:
+                print(f"{Fore.YELLOW}Filtered: {context_reason}{Style.RESET_ALL}")
+                filtered_out += 1
+                continue
+            adjusted_probability += market_context.sentiment_adjustment
+        
+        # 2. Volume confirmation
+        if filters.get('require_volume_confirmation', True):
+            volume = analysis.get('volume', {})
+            vol_ratio = volume.get('volume_ratio', 1.0)
+            if vol_ratio < filters.get('min_volume_ratio', 0.8):
+                print(f"{Fore.YELLOW}Low volume{Style.RESET_ALL}")
+                filtered_out += 1
+                continue
+            if vol_ratio > 1.5:
+                confidence_notes.append("High Vol")
+                adjusted_probability += 5
+        
+        # 3. News/Earnings filter
+        event_filter = news_filter.filter_stock(ticker)
+        if event_filter.should_avoid:
+            print(f"{Fore.YELLOW}Event risk: {', '.join(event_filter.reasons)}{Style.RESET_ALL}")
+            filtered_out += 1
+            continue
+        if event_filter.risk_level in ['HIGH', 'MEDIUM']:
+            confidence_notes.append(event_filter.risk_level)
+        
+        # 4. Multi-timeframe analysis (if enabled)
+        if config.get('multi_tf', {}).get('enabled', True) and signal.signal_type != SignalType.HOLD:
+            mtf_result = mtf_analyzer.analyze_all_timeframes(ticker, fetcher)
+            if mtf_result:
+                if mtf_result.is_valid_signal:
+                    boost = mtf_analyzer.get_confluence_boost(mtf_result)
+                    adjusted_probability += boost
+                    confidence_notes.append(f"{mtf_result.confluence_count}TF")
+                else:
+                    adjusted_probability -= 10
+        
+        # 5. Indicator agreement check
+        scores = signal_gen.get_last_scores()
+        if scores:
+            bullish_count = sum(1 for s in scores.values() if s.get('bullish', 0) > 0.5)
+            bearish_count = sum(1 for s in scores.values() if s.get('bearish', 0) > 0.5)
+            agreement = max(bullish_count, bearish_count)
+            
+            min_agreement = filters.get('min_indicator_agreement', 3)
+            if agreement < min_agreement:
+                adjusted_probability -= 10
+        
+        # Cap probability
+        adjusted_probability = max(0, min(95, adjusted_probability))
+        
+        # Create adjusted signal
+        adjusted_signal = TradingSignal(
+            ticker=signal.ticker,
+            signal_type=signal.signal_type,
+            probability=adjusted_probability,
+            sentiment=signal.sentiment,
+            entry_price=signal.entry_price,
+            stop_loss=signal.stop_loss,
+            target_price=signal.target_price,
+            risk_reward_ratio=signal.risk_reward_ratio,
+            reasons=signal.reasons
         )
         
-        if signal:
-            # Adjust probability based on market context
-            if market_context:
-                adjusted_prob = market_analyzer.adjust_signal_confidence(
-                    signal.signal_type.value,
-                    signal.probability,
-                    market_context
-                )
-                # Update the signal probability
-                signal = TradingSignal(
-                    ticker=signal.ticker,
-                    signal_type=signal.signal_type,
-                    probability=adjusted_prob,
-                    sentiment=signal.sentiment,
-                    entry_price=signal.entry_price,
-                    stop_loss=signal.stop_loss,
-                    target_price=signal.target_price,
-                    risk_reward_ratio=signal.risk_reward_ratio,
-                    reasons=signal.reasons,
-                    volume_confirmed=signal.volume_confirmed,
-                    timeframe_alignment=signal.timeframe_alignment,
-                    market_context=mkt_ctx_str
-                )
-            
-            # Apply minimum probability filter
-            if signal.probability >= min_prob:
-                signals.append(signal)
-                analyses[ticker] = analysis
-                
-                # Log to tracker
-                if signal.signal_type != SignalType.HOLD:
-                    tracker.log_signal(
-                        ticker=signal.ticker,
-                        signal_type=signal.signal_type.value,
-                        entry_price=signal.entry_price,
-                        target_price=signal.target_price,
-                        stop_loss=signal.stop_loss,
-                        probability=signal.probability,
-                        market_context=market_context.to_dict() if market_context else None,
-                        volume_confirmed=signal.volume_confirmed,
-                        timeframe_alignment=signal.timeframe_alignment,
-                        reasons=signal.reasons
-                    )
-                    
-                    # Send email for high-confidence signals
-                    if signal.probability >= 75:
-                        send_high_confidence_email(signal, config)
-                
-                print(f"{Fore.GREEN}Done{Style.RESET_ALL}")
-            else:
-                print(f"{Fore.YELLOW}Below threshold ({signal.probability:.1f}%){Style.RESET_ALL}")
-        else:
-            print(f"{Fore.YELLOW}No signal{Style.RESET_ALL}")
+        signals.append(adjusted_signal)
+        analyses[ticker] = analysis
+        
+        # Track high confidence signals
+        if adjusted_probability >= min_prob and adjusted_signal.signal_type != SignalType.HOLD:
+            high_confidence.append(adjusted_signal)
+            confidence_notes.append("⭐")
+        
+        # Log prediction
+        if adjusted_signal.signal_type != SignalType.HOLD and not args.no_track:
+            tracker.log_signal(
+                ticker=adjusted_signal.ticker,
+                signal_type=adjusted_signal.signal_type.value,
+                entry_price=adjusted_signal.entry_price,
+                target_price=adjusted_signal.target_price,
+                stop_loss=adjusted_signal.stop_loss,
+                probability=adjusted_probability,
+                reasons=adjusted_signal.reasons
+            )
+        
+        conf_str = " ".join(confidence_notes)
+        print(f"{Fore.GREEN}Done{Style.RESET_ALL} {conf_str}")
     
     # Print results
     print(f"\n{Fore.CYAN}{'═' * 65}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}📈 SCAN RESULTS{Style.RESET_ALL}")
     print(f"{Fore.CYAN}{'═' * 65}{Style.RESET_ALL}\n")
     
-    print(f"{'TICKER':<8} │ {'SIG':4s} │ {'PROB':>5s} │ {'PRICE':>10s} │ {'SENTIMENT':8s} │ VOL")
-    print(f"{'─' * 8}─┼─{'─' * 4}─┼─{'─' * 5}─┼─{'─' * 10}─┼─{'─' * 8}─┼─{'─' * 4}")
+    if filtered_out > 0:
+        print(f"  {Fore.YELLOW}ℹ️ {filtered_out} stocks filtered out by safety checks{Style.RESET_ALL}\n")
     
-    # Sort by probability
     signals.sort(key=lambda x: x.probability, reverse=True)
     
+    print(f"{'TICKER':<8} │ {'SIG':4s} │ {'PROB':>5s} │ {'PRICE':>10s}")
+    print(f"{'─' * 8}─┼─{'─' * 4}─┼─{'─' * 5}─┼─{'─' * 10}")
+    
     for signal in signals:
-        print(format_signal_line(signal))
+        conf = "⭐ HIGH" if signal.probability >= min_prob and signal.signal_type != SignalType.HOLD else ""
+        print(format_signal_line(signal, conf))
     
     print()
     
@@ -292,97 +283,285 @@ def cmd_scan(config: Dict, args: argparse.Namespace) -> int:
     buy_count = sum(1 for s in signals if s.signal_type == SignalType.BUY)
     sell_count = sum(1 for s in signals if s.signal_type == SignalType.SELL)
     hold_count = sum(1 for s in signals if s.signal_type == SignalType.HOLD)
-    high_conf = sum(1 for s in signals if s.probability >= 70)
     
     print(f"{Fore.GREEN}🟢 BUY:{Style.RESET_ALL} {buy_count}  │  "
           f"{Fore.RED}🔴 SELL:{Style.RESET_ALL} {sell_count}  │  "
-          f"{Fore.YELLOW}🟡 HOLD:{Style.RESET_ALL} {hold_count}  │  "
-          f"{Fore.CYAN}⭐ HIGH CONF:{Style.RESET_ALL} {high_conf}")
+          f"{Fore.YELLOW}🟡 HOLD:{Style.RESET_ALL} {hold_count}")
+    
+    # High confidence alerts
+    if high_confidence:
+        print(f"\n{Fore.CYAN}⭐ HIGH CONFIDENCE SIGNALS ({len(high_confidence)}):{Style.RESET_ALL}")
+        for sig in high_confidence:
+            emoji = "🟢" if sig.signal_type == SignalType.BUY else "🔴"
+            print(f"   {emoji} {sig.ticker}: {sig.signal_type.value} @ {format_currency(sig.entry_price)} ({sig.probability:.0f}%)")
+        
+        # Send alerts
+        if args.alert and alert_system.is_configured():
+            for sig in high_confidence:
+                alert_system.send_signal_alert(
+                    ticker=sig.ticker,
+                    signal_type=sig.signal_type.value,
+                    probability=sig.probability,
+                    entry_price=sig.entry_price,
+                    stop_loss=sig.stop_loss,
+                    target_price=sig.target_price,
+                    reasons=sig.reasons,
+                    additional_info={'market_context': market_context.regime.value}
+                )
+            print(f"\n{Fore.GREEN}📧 Email alerts sent!{Style.RESET_ALL}")
+    
     print()
+    return 0
+
+
+def cmd_premarket(config: Dict, args: argparse.Namespace) -> int:
+    """Pre-market scanner."""
+    print(f"\n{Fore.CYAN}🌅 Pre-Market Scanner{Style.RESET_ALL}\n")
+    
+    fetcher = DataFetcher()
+    scanner = PremarketScanner(config)
+    watchlist = config.get('watchlist', [])
+    
+    scan = scanner.scan_watchlist(watchlist)
+    
+    print(f"  Market Status: {scan.market_status}")
+    print(f"  Scan Time: {scan.scan_time.strftime('%H:%M:%S')}")
+    print()
+    
+    if scan.gap_ups:
+        print(f"{Fore.GREEN}📈 GAP UPS:{Style.RESET_ALL}")
+        for g in scan.gap_ups[:5]:
+            vol = f"{g.volume_ratio:.1f}x vol" if g.is_unusual_volume else ""
+            print(f"   {g.ticker}: +{g.gap_percent:.1f}% {vol}")
+        print()
+    
+    if scan.gap_downs:
+        print(f"{Fore.RED}📉 GAP DOWNS:{Style.RESET_ALL}")
+        for g in scan.gap_downs[:5]:
+            vol = f"{g.volume_ratio:.1f}x vol" if g.is_unusual_volume else ""
+            print(f"   {g.ticker}: {g.gap_percent:.1f}% {vol}")
+        print()
+    
+    if scan.unusual_volume:
+        print(f"{Fore.CYAN}📊 UNUSUAL VOLUME:{Style.RESET_ALL}")
+        for u in scan.unusual_volume[:5]:
+            print(f"   {u.ticker}: {u.volume_ratio:.1f}x average volume")
+        print()
+    
+    # Trading signals
+    signals = scanner.get_gapper_signals(scan)
+    if signals:
+        print(f"{Fore.YELLOW}💡 POTENTIAL SETUPS:{Style.RESET_ALL}")
+        for s in signals[:5]:
+            print(f"   {s['ticker']}: {s['strategy']} ({s['gap_percent']:+.1f}%)")
+        print()
     
     return 0
 
 
-def cmd_analyze(config: Dict, args: argparse.Namespace) -> int:
-    """
-    Analyze a specific stock with multi-timeframe analysis.
+def cmd_paper(config: Dict, args: argparse.Namespace) -> int:
+    """Paper trading commands."""
+    paper = PaperTrader(
+        starting_balance=config.get('paper_trading', {}).get('starting_balance', 10000)
+    )
     
-    Args:
-        config: Configuration dictionary
-        args: Command line arguments with ticker
+    if args.paper_action == 'status':
+        account = paper.get_account_status()
         
-    Returns:
-        Exit code
-    """
+        print(f"\n{Fore.CYAN}📄 Paper Trading Account{Style.RESET_ALL}\n")
+        print(f"  Starting Balance: {format_currency(account.starting_balance)}")
+        print(f"  Current Balance:  {format_currency(account.current_balance)}")
+        
+        pnl_color = Fore.GREEN if account.total_pnl >= 0 else Fore.RED
+        print(f"  Total P&L:        {pnl_color}{format_currency(account.total_pnl)} ({account.total_pnl_pct:+.1f}%){Style.RESET_ALL}")
+        print()
+        
+        print(f"  Total Trades:     {account.total_trades}")
+        print(f"  Win Rate:         {account.win_rate:.1f}%")
+        print(f"  Profit Factor:    {account.profit_factor:.2f}")
+        print(f"  Max Drawdown:     {account.max_drawdown:.1f}%")
+        print()
+        
+        if account.open_positions:
+            print(f"{Fore.CYAN}Open Positions:{Style.RESET_ALL}")
+            for pos in account.open_positions:
+                print(f"   {pos.ticker}: {pos.shares} shares @ {format_currency(pos.entry_price)}")
+        print()
+        
+    elif args.paper_action == 'buy':
+        # Buy based on latest signal
+        fetcher = DataFetcher()
+        analyzer = TechnicalAnalyzer(config)
+        signal_gen = SignalGenerator(config)
+        risk_mgr = RiskManager(config)
+        
+        ticker = args.ticker.upper()
+        data = fetcher.get_stock_data(ticker)
+        if data is None:
+            print(f"{Fore.RED}❌ Could not fetch data for {ticker}{Style.RESET_ALL}")
+            return 1
+        
+        analysis = analyzer.analyze(data)
+        signal = signal_gen.generate_signal(ticker, analysis)
+        
+        if signal and signal.signal_type == SignalType.BUY:
+            pos_size = risk_mgr.calculate_position_size(
+                ticker, signal.entry_price, signal.stop_loss, signal.target_price
+            )
+            
+            if pos_size.is_valid:
+                success = paper.open_position(
+                    ticker=ticker,
+                    shares=pos_size.shares,
+                    entry_price=signal.entry_price,
+                    stop_loss=signal.stop_loss,
+                    target_price=signal.target_price,
+                    signal_type='BUY'
+                )
+                
+                if success:
+                    print(f"\n{Fore.GREEN}✅ Paper BUY: {pos_size.shares} shares of {ticker} @ {format_currency(signal.entry_price)}{Style.RESET_ALL}")
+                    print(f"   Stop: {format_currency(signal.stop_loss)} | Target: {format_currency(signal.target_price)}")
+                else:
+                    print(f"{Fore.RED}❌ Could not open position{Style.RESET_ALL}")
+            else:
+                print(f"{Fore.RED}❌ {pos_size.rejection_reason}{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.YELLOW}⚠️ No BUY signal for {ticker}{Style.RESET_ALL}")
+    
+    elif args.paper_action == 'close':
+        ticker = args.ticker.upper()
+        fetcher = DataFetcher()
+        quote = fetcher.get_realtime_quote(ticker)
+        
+        if quote and quote.get('price'):
+            trade = paper.close_position(ticker, quote['price'], 'MANUAL')
+            if trade:
+                pnl_color = Fore.GREEN if trade['pnl'] >= 0 else Fore.RED
+                print(f"\n{Fore.CYAN}Closed {ticker}:{Style.RESET_ALL}")
+                print(f"   P&L: {pnl_color}{format_currency(trade['pnl'])} ({trade['pnl_pct']:+.1f}%){Style.RESET_ALL}")
+            else:
+                print(f"{Fore.YELLOW}No open position in {ticker}{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.RED}Could not get price for {ticker}{Style.RESET_ALL}")
+    
+    elif args.paper_action == 'reset':
+        paper.reset_account()
+        print(f"{Fore.GREEN}✅ Paper account reset{Style.RESET_ALL}")
+    
+    return 0
+
+
+def cmd_backtest(config: Dict, args: argparse.Namespace) -> int:
+    """Run backtest on historical data."""
+    print(f"\n{Fore.CYAN}📊 Running Backtest ({args.days} days){Style.RESET_ALL}\n")
+    
+    fetcher = DataFetcher()
+    engine = BacktestEngine(config)
+    watchlist = config.get('watchlist', [])
+    
+    results = engine.run_portfolio_backtest(watchlist, fetcher, args.days)
+    
+    if not results:
+        print(f"{Fore.RED}❌ No backtest results{Style.RESET_ALL}")
+        return 1
+    
+    # Print summary
+    print(f"{Fore.CYAN}{'═' * 60}{Style.RESET_ALL}")
+    print(f"{'TICKER':<8} {'TRADES':>7} {'WIN%':>7} {'P&L':>10} {'PF':>8} {'MAX DD':>8}")
+    print(f"{Fore.CYAN}{'═' * 60}{Style.RESET_ALL}")
+    
+    total_trades = 0
+    total_wins = 0
+    total_pnl = 0
+    
+    for ticker, result in sorted(results.items(), key=lambda x: x[1].total_pnl_pct, reverse=True):
+        wr_color = Fore.GREEN if result.win_rate >= 50 else Fore.RED
+        pnl_color = Fore.GREEN if result.total_pnl_pct >= 0 else Fore.RED
+        
+        print(f"{ticker:<8} {result.total_trades:>7} {wr_color}{result.win_rate:>6.1f}%{Style.RESET_ALL} "
+              f"{pnl_color}{result.total_pnl_pct:>+9.1f}%{Style.RESET_ALL} "
+              f"{result.profit_factor:>7.2f} {result.max_drawdown_pct:>7.1f}%")
+        
+        total_trades += result.total_trades
+        total_wins += result.winning_trades
+        total_pnl += result.total_pnl_pct
+    
+    print(f"{Fore.CYAN}{'═' * 60}{Style.RESET_ALL}")
+    
+    overall_wr = (total_wins / total_trades * 100) if total_trades > 0 else 0
+    avg_pnl = total_pnl / len(results) if results else 0
+    
+    print(f"\n{Fore.WHITE}Summary:{Style.RESET_ALL}")
+    print(f"  Total Trades: {total_trades}")
+    print(f"  Overall Win Rate: {overall_wr:.1f}%")
+    print(f"  Average P&L: {avg_pnl:+.1f}%")
+    
+    # Save report
+    if args.save:
+        report = engine.generate_report(results)
+        ensure_dir("./output")
+        filepath = Path("./output") / f"backtest_{args.days}d.md"
+        with open(filepath, 'w') as f:
+            f.write(report)
+        print(f"\n{Fore.GREEN}✅ Report saved to {filepath}{Style.RESET_ALL}")
+    
+    print()
+    return 0
+
+
+def cmd_risk(config: Dict, args: argparse.Namespace) -> int:
+    """Display risk status."""
+    risk_mgr = RiskManager(config)
+    status = risk_mgr.get_risk_status()
+    
+    print(f"\n{Fore.CYAN}⚠️ Risk Status{Style.RESET_ALL}\n")
+    
+    pnl_color = Fore.GREEN if status.daily_pnl >= 0 else Fore.RED
+    print(f"  Daily P&L: {pnl_color}{format_currency(status.daily_pnl)} ({status.daily_pnl_pct:+.1f}%){Style.RESET_ALL}")
+    print(f"  Trades Today: {status.trades_today} ({status.wins_today}W / {status.losses_today}L)")
+    print(f"  Open Positions: {status.open_positions}")
+    print(f"  Remaining Risk: {format_currency(status.remaining_risk)}")
+    
+    if status.at_daily_limit:
+        print(f"\n{Fore.RED}🛑 DAILY LOSS LIMIT REACHED - STOP TRADING{Style.RESET_ALL}")
+    
+    if status.warnings:
+        print(f"\n{Fore.YELLOW}Warnings:{Style.RESET_ALL}")
+        for w in status.warnings:
+            print(f"  {w}")
+    
+    print()
+    return 0
+
+
+def cmd_analyze(config: Dict, args: argparse.Namespace) -> int:
+    """Detailed single stock analysis."""
     ticker = args.ticker.upper()
-    print(f"\n{Fore.CYAN}📊 Analyzing {ticker}...{Style.RESET_ALL}\n")
+    print(f"\n{Fore.CYAN}📊 Detailed Analysis: {ticker}{Style.RESET_ALL}\n")
     
     fetcher = DataFetcher()
     analyzer = TechnicalAnalyzer(config)
-    mtf_analyzer = MultiTimeframeAnalyzer(config)
     signal_gen = SignalGenerator(config)
-    market_analyzer = MarketAnalyzer(config)
-    report_gen = ReportGenerator(config)
+    news_filter = NewsAndEarningsFilter(config)
+    risk_mgr = RiskManager(config)
+    mtf_analyzer = MultiTimeframeAnalyzer(config)
     
-    # Fetch data
+    # Basic analysis
     data = fetcher.get_stock_data(ticker)
     if data is None:
-        print(f"{Fore.RED}❌ Failed to fetch data for {ticker}{Style.RESET_ALL}")
+        print(f"{Fore.RED}❌ Could not fetch data{Style.RESET_ALL}")
         return 1
     
-    # Get quote
+    analysis = analyzer.analyze(data)
+    signal = signal_gen.generate_signal(ticker, analysis)
     quote = fetcher.get_realtime_quote(ticker)
     
-    # Get market context
-    market_context = market_analyzer.analyze_market(fetcher)
-    mkt_ctx_str = market_context.description if market_context else None
-    
-    # Multi-timeframe analysis
-    print(f"  Running multi-timeframe analysis...")
-    mtf_result = mtf_analyzer.analyze_multi_timeframe(ticker, fetcher)
-    timeframe_alignment = mtf_result.get('alignment_score') if mtf_result else None
-    
-    # Standard analysis
-    analysis = analyzer.analyze(data)
-    if analysis is None:
-        print(f"{Fore.RED}❌ Insufficient data for analysis{Style.RESET_ALL}")
-        return 1
-    
-    # Generate signal with all context
-    signal = signal_gen.generate_signal(
-        ticker, 
-        analysis,
-        timeframe_alignment=timeframe_alignment,
-        market_context=mkt_ctx_str
-    )
-    
     if signal is None:
-        print(f"{Fore.RED}❌ Failed to generate signal{Style.RESET_ALL}")
+        print(f"{Fore.RED}❌ Could not generate signal{Style.RESET_ALL}")
         return 1
     
-    # Adjust for market context
-    if market_context:
-        adjusted_prob = market_analyzer.adjust_signal_confidence(
-            signal.signal_type.value,
-            signal.probability,
-            market_context
-        )
-        signal = TradingSignal(
-            ticker=signal.ticker,
-            signal_type=signal.signal_type,
-            probability=adjusted_prob,
-            sentiment=signal.sentiment,
-            entry_price=signal.entry_price,
-            stop_loss=signal.stop_loss,
-            target_price=signal.target_price,
-            risk_reward_ratio=signal.risk_reward_ratio,
-            reasons=signal.reasons,
-            volume_confirmed=signal.volume_confirmed,
-            timeframe_alignment=timeframe_alignment,
-            market_context=mkt_ctx_str
-        )
-    
-    # Print results
+    # Signal
     if signal.signal_type == SignalType.BUY:
         color = Fore.GREEN
         emoji = "🟢"
@@ -393,424 +572,202 @@ def cmd_analyze(config: Dict, args: argparse.Namespace) -> int:
         color = Fore.YELLOW
         emoji = "🟡"
     
-    print(f"{'═' * 55}")
     name = quote.get('name', ticker) if quote else ticker
-    print(f"{emoji} {color}{name} ({ticker}){Style.RESET_ALL}")
-    print(f"{'═' * 55}\n")
-    
-    # Market context
-    if market_context:
-        print(market_analyzer.format_context(market_context))
-    
-    # Price info
-    print(f"  {Fore.WHITE}Current Price:{Style.RESET_ALL} {format_currency(signal.entry_price)}")
-    if analysis.get('price_change_pct'):
-        pct = analysis['price_change_pct']
-        pct_color = Fore.GREEN if pct >= 0 else Fore.RED
-        print(f"  {Fore.WHITE}Change:{Style.RESET_ALL} {pct_color}{pct:+.2f}%{Style.RESET_ALL}")
+    print(f"  {emoji} {color}{name}{Style.RESET_ALL}")
+    print(f"  Price: {format_currency(signal.entry_price)}")
+    print(f"  Signal: {color}{signal.signal_type.value}{Style.RESET_ALL} ({signal.probability:.0f}%)")
     print()
     
-    # Signal
-    print(f"  {Fore.WHITE}Signal:{Style.RESET_ALL} {color}{signal.signal_type.value}{Style.RESET_ALL}")
-    print(f"  {Fore.WHITE}Probability:{Style.RESET_ALL} {signal.probability:.1f}%")
-    print(f"  {Fore.WHITE}Sentiment:{Style.RESET_ALL} {signal.sentiment.value}")
-    print(f"  {Fore.WHITE}Volume Confirmed:{Style.RESET_ALL} {'✅ Yes' if signal.volume_confirmed else '❌ No'}")
-    
-    if timeframe_alignment is not None:
-        tf_color = Fore.GREEN if timeframe_alignment >= 70 else Fore.YELLOW if timeframe_alignment >= 50 else Fore.RED
-        print(f"  {Fore.WHITE}Timeframe Alignment:{Style.RESET_ALL} {tf_color}{timeframe_alignment:.0f}%{Style.RESET_ALL}")
-    print()
-    
-    # Targets
-    if signal.stop_loss and signal.target_price:
-        print(f"  {Fore.WHITE}Stop Loss:{Style.RESET_ALL} {format_currency(signal.stop_loss)}")
-        print(f"  {Fore.WHITE}Target:{Style.RESET_ALL} {format_currency(signal.target_price)}")
-        if signal.risk_reward_ratio:
-            print(f"  {Fore.WHITE}Risk/Reward:{Style.RESET_ALL} {signal.risk_reward_ratio:.2f}")
-    print()
-    
-    # Key indicators
-    print(f"  {Fore.CYAN}Technical Indicators:{Style.RESET_ALL}")
-    print(f"    RSI(14): {analysis.get('rsi', 0):.1f}")
-    print(f"    MACD: {analysis.get('macd', 0):.4f}")
-    print(f"    SMA(20): {format_currency(analysis.get('sma_short', 0))}")
-    print(f"    SMA(50): {format_currency(analysis.get('sma_long', 0))}")
-    vol = analysis.get('volume', {})
-    print(f"    Volume Ratio: {vol.get('volume_ratio', 1.0):.2f}x")
-    print()
-    
-    # Multi-timeframe breakdown
-    if mtf_result:
-        print(f"  {Fore.CYAN}Multi-Timeframe Analysis:{Style.RESET_ALL}")
-        for tf, data in mtf_result.get('timeframes', {}).items():
-            bias_color = Fore.GREEN if data['bias'] == 'BULLISH' else Fore.RED if data['bias'] == 'BEARISH' else Fore.YELLOW
-            print(f"    {tf:4s}: {bias_color}{data['bias']}{Style.RESET_ALL}")
-        print(f"    Overall: {mtf_result.get('dominant_bias', 'N/A')}")
+    # Position sizing
+    if signal.signal_type != SignalType.HOLD:
+        pos_size = risk_mgr.calculate_position_size(
+            ticker, signal.entry_price, signal.stop_loss, signal.target_price
+        )
+        
+        print(f"{Fore.CYAN}Position Sizing:{Style.RESET_ALL}")
+        if pos_size.is_valid:
+            print(f"  Shares: {pos_size.shares}")
+            print(f"  Position Value: {format_currency(pos_size.position_value)}")
+            print(f"  Risk: {format_currency(pos_size.risk_amount)} ({pos_size.risk_percent:.1f}%)")
+            print(f"  R:R Ratio: {pos_size.risk_reward_ratio:.2f}")
+        else:
+            print(f"  {Fore.RED}❌ {pos_size.rejection_reason}{Style.RESET_ALL}")
         print()
     
-    # Reasons
+    # News/Earnings
+    events = news_filter.filter_stock(ticker)
+    print(f"{Fore.CYAN}Events:{Style.RESET_ALL}")
+    print(f"  Risk Level: {events.risk_level}")
+    if events.earnings and events.earnings.has_upcoming_earnings:
+        print(f"  Earnings: {events.earnings.days_until_earnings} days")
+    for reason in events.reasons:
+        print(f"  • {reason}")
+    print()
+    
+    # Multi-timeframe
+    print(f"{Fore.CYAN}Multi-Timeframe:{Style.RESET_ALL}")
+    mtf_result = mtf_analyzer.analyze_all_timeframes(ticker, fetcher)
+    if mtf_result:
+        print(f"  Alignment: {mtf_result.alignment_score:.0f}%")
+        print(f"  Confluence: {mtf_result.confluence_count} timeframes")
+        print(f"  Valid Signal: {'✅' if mtf_result.is_valid_signal else '❌'}")
+    print()
+    
+    # Technical indicators
+    print(f"{Fore.CYAN}Technical Indicators:{Style.RESET_ALL}")
+    print(f"  RSI(14): {analysis.get('rsi', 0):.1f}")
+    print(f"  MACD: {analysis.get('macd', 0):.4f}")
+    print(f"  SMA(20): {format_currency(analysis.get('sma_short', 0))}")
+    print(f"  SMA(50): {format_currency(analysis.get('sma_long', 0))}")
+    
+    vol = analysis.get('volume', {})
+    print(f"  Volume: {vol.get('volume_ratio', 1):.1f}x average")
+    print()
+    
     if signal.reasons:
-        print(f"  {Fore.CYAN}Signal Factors:{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}Signal Factors:{Style.RESET_ALL}")
         for reason in signal.reasons:
-            print(f"    • {reason}")
-    print()
-    
-    # Save option
-    if args.save:
-        report = report_gen.generate_single_analysis(signal, analysis)
-        filepath = report_gen.save_report(report, f"{ticker}_analysis.md")
-        print(f"  {Fore.GREEN}✅ Report saved to {filepath}{Style.RESET_ALL}\n")
-    
-    return 0
-
-
-def cmd_report(config: Dict, args: argparse.Namespace) -> int:
-    """
-    Generate daily market report.
-    
-    Args:
-        config: Configuration dictionary
-        args: Command line arguments
-        
-    Returns:
-        Exit code
-    """
-    print(f"\n{Fore.CYAN}📊 Generating daily report...{Style.RESET_ALL}\n")
-    
-    watchlist = config.get('watchlist', [])
-    if not watchlist:
-        print(f"{Fore.RED}❌ No stocks in watchlist{Style.RESET_ALL}")
-        return 1
-    
-    fetcher = DataFetcher()
-    analyzer = TechnicalAnalyzer(config)
-    signal_gen = SignalGenerator(config)
-    report_gen = ReportGenerator(config)
-    
-    signals: List[TradingSignal] = []
-    analyses: Dict = {}
-    
-    for ticker in watchlist:
-        print(f"  Scanning {ticker}...", end=" ", flush=True)
-        
-        data = fetcher.get_stock_data(ticker)
-        if data is None:
-            print(f"{Fore.RED}Failed{Style.RESET_ALL}")
-            continue
-        
-        analysis = analyzer.analyze(data)
-        if analysis is None:
-            print(f"{Fore.YELLOW}Skip{Style.RESET_ALL}")
-            continue
-        
-        signal = signal_gen.generate_signal(ticker, analysis)
-        if signal:
-            signals.append(signal)
-            analyses[ticker] = analysis
-            print(f"{Fore.GREEN}Done{Style.RESET_ALL}")
-    
-    # Generate report
-    report = report_gen.generate_scan_report(signals, analyses)
-    
-    # Save report
-    filepath = report_gen.save_report(report)
-    print(f"\n{Fore.GREEN}✅ Report saved to {filepath}{Style.RESET_ALL}")
-    
-    # Email if requested
-    if args.email:
-        report_gen.send_email(report)
-    
-    return 0
-
-
-def cmd_backtest(config: Dict, args: argparse.Namespace) -> int:
-    """
-    Run backtesting on historical data.
-    
-    Args:
-        config: Configuration dictionary
-        args: Command line arguments
-        
-    Returns:
-        Exit code
-    """
-    days = args.days
-    min_prob = getattr(args, 'min_prob', 50) or 50
-    
-    print(f"\n{Fore.CYAN}📊 Running backtest ({days} days)...{Style.RESET_ALL}\n")
-    
-    watchlist = config.get('watchlist', [])
-    if not watchlist:
-        print(f"{Fore.RED}❌ No stocks in watchlist{Style.RESET_ALL}")
-        return 1
-    
-    engine = BacktestEngine(config)
-    
-    print(f"  Testing on: {', '.join(watchlist)}")
-    print(f"  Minimum probability: {min_prob}%")
-    print(f"  Position size: {engine.position_size_pct}%")
-    print()
-    
-    result = engine.run_backtest(
-        tickers=watchlist,
-        days=days,
-        min_probability=min_prob
-    )
-    
-    print(engine.print_results(result))
-    
-    return 0
-
-
-def cmd_paper(config: Dict, args: argparse.Namespace) -> int:
-    """
-    Paper trading mode.
-    
-    Args:
-        config: Configuration dictionary
-        args: Command line arguments
-        
-    Returns:
-        Exit code
-    """
-    print(f"\n{Fore.CYAN}📄 Paper Trading Mode{Style.RESET_ALL}\n")
-    
-    trader = PaperTrader()
-    fetcher = DataFetcher()
-    
-    # Try to load existing session
-    session = trader.load_session()
-    
-    if args.reset:
-        session = trader.reset_session()
-        print(f"{Fore.GREEN}✅ Session reset{Style.RESET_ALL}")
-    elif session is None:
-        balance = getattr(args, 'balance', 10000) or 10000
-        session = trader.start_session(balance)
-        print(f"{Fore.GREEN}✅ New session started with ${balance:,.2f}{Style.RESET_ALL}")
-    
-    # Update positions with current prices
-    if session.positions:
-        print(f"\nUpdating position prices...")
-        closed = trader.update_positions(fetcher)
-        for c in closed:
-            emoji = "✅" if c.profit_loss > 0 else "❌"
-            print(f"  {emoji} {c.ticker} closed: ${c.entry_price:.2f} → ${c.exit_price:.2f} ({c.profit_pct:+.2f}%)")
-    
-    # Show status
-    print(trader.get_status())
-    
-    # If --auto flag, automatically execute signals
-    if getattr(args, 'auto', False):
-        print(f"\n{Fore.CYAN}Auto-executing signals...{Style.RESET_ALL}\n")
-        
-        analyzer = TechnicalAnalyzer(config)
-        signal_gen = SignalGenerator(config)
-        
-        for ticker in config.get('watchlist', []):
-            if len(session.positions) >= trader.max_positions:
-                print(f"  Maximum positions reached")
-                break
-            
-            data = fetcher.get_stock_data(ticker)
-            if data is None:
-                continue
-            
-            analysis = analyzer.analyze(data)
-            if analysis is None:
-                continue
-            
-            signal = signal_gen.generate_signal(ticker, analysis)
-            if signal and signal.signal_type != SignalType.HOLD and signal.probability >= 65:
-                pos = trader.open_position(
-                    ticker=signal.ticker,
-                    signal_type=signal.signal_type.value,
-                    entry_price=signal.entry_price,
-                    target_price=signal.target_price,
-                    stop_loss=signal.stop_loss,
-                    probability=signal.probability
-                )
-                if pos:
-                    print(f"  {Fore.GREEN}✅ Opened {signal.signal_type.value} on {ticker} at ${signal.entry_price:.2f}{Style.RESET_ALL}")
-        
-        print(trader.get_status())
+            print(f"  • {reason}")
+        print()
     
     return 0
 
 
 def cmd_performance(config: Dict, args: argparse.Namespace) -> int:
-    """
-    Show historical performance statistics.
+    """View prediction performance."""
+    print(f"\n{Fore.CYAN}📊 Model Performance{Style.RESET_ALL}\n")
     
-    Args:
-        config: Configuration dictionary
-        args: Command line arguments
-        
-    Returns:
-        Exit code
-    """
-    tracker = PredictionTracker()
-    fetcher = DataFetcher()
-    
-    # Update pending predictions first
-    print(f"\n{Fore.CYAN}Checking pending predictions...{Style.RESET_ALL}")
-    updates = tracker.update_pending_outcomes(fetcher)
-    
-    if updates['wins'] or updates['losses']:
-        print(f"  New outcomes: {updates['wins']} wins, {updates['losses']} losses")
-    
-    # Get overall stats
-    days = getattr(args, 'days', None)
-    stats = tracker.get_performance_stats(days=days)
-    
-    print()
-    print(f"{Fore.CYAN}📊 PERFORMANCE SUMMARY{Style.RESET_ALL}")
-    print(f"{'═' * 45}")
-    print()
+    tracker = PredictionTracker(get_db_path())
+    stats = tracker.get_performance_stats()
     
     if stats['total_predictions'] == 0:
         print(f"{Fore.YELLOW}No completed predictions yet.{Style.RESET_ALL}")
-        print(f"Run 'python main.py scan' to generate signals,")
-        print(f"then check back later to see outcomes.")
-        print()
+        print(f"Run 'python main.py scan' to log predictions.")
+        print(f"Run 'python main.py verify' to check outcomes.")
         return 0
     
-    print(f"Total Predictions: {stats['total_predictions']}")
-    print(f"Wins: {stats['wins']} | Losses: {stats['losses']}")
-    print(f"Win Rate: {stats['win_rate']:.1f}%")
-    print()
-    print(f"Avg Profit: {Fore.GREEN}+{stats['avg_profit']:.2f}%{Style.RESET_ALL}")
-    print(f"Avg Loss: {Fore.RED}-{stats['avg_loss']:.2f}%{Style.RESET_ALL}")
-    print(f"Profit Factor: {stats['profit_factor']:.2f}")
-    print(f"Total Return: {'+' if stats['total_return'] >= 0 else ''}{stats['total_return']:.2f}%")
-    print()
+    completed = stats['wins'] + stats['losses']
     
-    # Per-ticker breakdown
-    ticker_stats = tracker.get_ticker_performance()
-    
-    if ticker_stats:
-        print(f"{Fore.CYAN}📈 PERFORMANCE BY TICKER{Style.RESET_ALL}")
-        print(f"{'─' * 45}")
-        print(f"{'TICKER':<8} │ {'TRADES':>6} │ {'WIN RATE':>8} │ {'RETURN':>8}")
-        print(f"{'─' * 8}─┼─{'─' * 6}─┼─{'─' * 8}─┼─{'─' * 8}")
+    if completed > 0:
+        win_rate = stats['win_rate']
+        bar_len = 30
+        filled = int(win_rate / 100 * bar_len)
+        bar = f"{Fore.GREEN}{'█' * filled}{Style.RESET_ALL}{Fore.RED}{'░' * (bar_len - filled)}{Style.RESET_ALL}"
         
-        for ts in ticker_stats[:10]:
-            ret_color = Fore.GREEN if ts['total_return'] >= 0 else Fore.RED
-            print(
-                f"{ts['ticker']:<8} │ {ts['total_predictions']:>6} │ "
-                f"{ts['win_rate']:>7.1f}% │ "
-                f"{ret_color}{ts['total_return']:>+7.1f}%{Style.RESET_ALL}"
-            )
-        
+        print(f"  Model Accuracy: [{bar}] {Fore.CYAN}{win_rate:.1f}%{Style.RESET_ALL}")
+        print(f"  {stats['wins']} wins / {stats['losses']} losses")
         print()
-        
-        # Best and worst
-        if len(ticker_stats) >= 2:
-            best = ticker_stats[0]
-            worst = ticker_stats[-1]
-            print(f"🏆 Best Performer:  {best['ticker']} ({best['win_rate']:.0f}% win rate)")
-            print(f"📉 Worst Performer: {worst['ticker']} ({worst['win_rate']:.0f}% win rate)")
     
-    print()
+    print(f"  Total Completed: {stats['total_predictions']}")
     
-    # Pending predictions
-    pending = tracker.get_pending_predictions()
-    if pending:
-        print(f"{Fore.YELLOW}⏳ {len(pending)} predictions still pending{Style.RESET_ALL}")
+    if completed > 0:
+        print(f"  Avg Win: {Fore.GREEN}+{stats['avg_profit']:.2f}%{Style.RESET_ALL}")
+        print(f"  Avg Loss: {Fore.RED}-{stats['avg_loss']:.2f}%{Style.RESET_ALL}")
+        print(f"  Profit Factor: {stats['profit_factor']:.2f}")
+        print(f"  Total Return: {stats['total_return']:+.1f}%")
+    
+    # Show by ticker
+    ticker_stats = tracker.get_ticker_performance()
+    if ticker_stats:
+        print(f"\n{Fore.CYAN}By Ticker:{Style.RESET_ALL}")
+        for ts in sorted(ticker_stats, key=lambda x: x['win_rate'], reverse=True)[:5]:
+            wr_color = Fore.GREEN if ts['win_rate'] >= 50 else Fore.RED
+            print(f"  {ts['ticker']}: {wr_color}{ts['win_rate']:.0f}%{Style.RESET_ALL} ({ts['wins']}W/{ts['losses']}L)")
     
     print()
     return 0
 
 
+def cmd_verify(config: Dict, args: argparse.Namespace) -> int:
+    """Verify pending predictions."""
+    print(f"\n{Fore.CYAN}🔍 Verifying predictions...{Style.RESET_ALL}\n")
+    
+    tracker = PredictionTracker(get_db_path())
+    fetcher = DataFetcher()
+    
+    results = tracker.update_pending_outcomes(fetcher)
+    
+    print(f"\n{Fore.CYAN}Summary:{Style.RESET_ALL}")
+    print(f"  {Fore.GREEN}Wins: {results['wins']}{Style.RESET_ALL}")
+    print(f"  {Fore.RED}Losses: {results['losses']}{Style.RESET_ALL}")
+    print(f"  Pending: {results['still_pending']}")
+    
+    return 0
+
+
 def main():
-    """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="DayTrader-Forecast - Technical Analysis Scanner",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python main.py scan                    Scan all watchlist stocks
-  python main.py scan --min-prob 70      Only show 70%+ probability signals
-  python main.py analyze AAPL            Analyze Apple stock
-  python main.py analyze TSLA --save     Analyze Tesla and save report
-  python main.py report                  Generate daily report
-  python main.py report --email          Generate and email report
-  python main.py backtest --days 30      Backtest strategy on 30 days of data
-  python main.py paper                   Show paper trading status
-  python main.py paper --reset           Start new paper trading session
-  python main.py paper --auto            Auto-execute signals in paper mode
-  python main.py performance             Show historical accuracy
-        """
+        description="DayTrader-Forecast PRO - Professional Day Trading Analysis",
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
-    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    subparsers = parser.add_subparsers(dest='command', help='Commands')
     
-    # Scan command
-    scan_parser = subparsers.add_parser('scan', help='Scan all watchlist stocks')
-    scan_parser.add_argument('--min-prob', type=float, default=0,
-                             help='Minimum probability threshold (0-100)')
+    # Scan
+    scan_p = subparsers.add_parser('scan', help='Professional market scan')
+    scan_p.add_argument('--no-track', action='store_true', help="Don't log predictions")
+    scan_p.add_argument('--alert', '-a', action='store_true', help='Send email alerts')
     
-    # Analyze command
-    analyze_parser = subparsers.add_parser('analyze', help='Analyze a specific stock')
-    analyze_parser.add_argument('ticker', help='Stock ticker symbol (e.g., AAPL)')
-    analyze_parser.add_argument('--save', '-s', action='store_true',
-                                help='Save analysis to file')
+    # Analyze
+    analyze_p = subparsers.add_parser('analyze', help='Analyze a stock')
+    analyze_p.add_argument('ticker', help='Stock symbol')
     
-    # Report command
-    report_parser = subparsers.add_parser('report', help='Generate daily report')
-    report_parser.add_argument('--email', '-e', action='store_true',
-                               help='Send report via email')
+    # Pre-market
+    subparsers.add_parser('premarket', help='Pre-market scanner')
     
-    # Backtest command
-    backtest_parser = subparsers.add_parser('backtest', help='Run backtesting on historical data')
-    backtest_parser.add_argument('--days', '-d', type=int, default=30,
-                                 help='Number of days to backtest (default: 30)')
-    backtest_parser.add_argument('--min-prob', type=float, default=50,
-                                 help='Minimum probability for trades (default: 50)')
+    # Paper trading
+    paper_p = subparsers.add_parser('paper', help='Paper trading')
+    paper_p.add_argument('paper_action', choices=['status', 'buy', 'close', 'reset'])
+    paper_p.add_argument('ticker', nargs='?', help='Stock symbol')
     
-    # Paper trading command
-    paper_parser = subparsers.add_parser('paper', help='Paper trading mode')
-    paper_parser.add_argument('--reset', action='store_true',
-                              help='Reset and start new session')
-    paper_parser.add_argument('--balance', type=float, default=10000,
-                              help='Starting balance (default: $10,000)')
-    paper_parser.add_argument('--auto', action='store_true',
-                              help='Auto-execute signals')
+    # Backtest
+    bt_p = subparsers.add_parser('backtest', help='Backtest strategy')
+    bt_p.add_argument('--days', '-d', type=int, default=30, help='Days to backtest')
+    bt_p.add_argument('--save', '-s', action='store_true', help='Save report')
     
-    # Performance command
-    perf_parser = subparsers.add_parser('performance', help='Show historical performance')
-    perf_parser.add_argument('--days', type=int,
-                             help='Filter to last N days')
+    # Risk
+    subparsers.add_parser('risk', help='View risk status')
+    
+    # Performance
+    perf_p = subparsers.add_parser('performance', help='View model performance')
+    perf_p.add_argument('--save', '-s', action='store_true', help='Save report')
+    
+    # Verify
+    verify_p = subparsers.add_parser('verify', help='Verify predictions')
+    verify_p.add_argument('--days', '-d', type=int, default=10, help='Max days to check')
+    
+    # Report
+    report_p = subparsers.add_parser('report', help='Generate report')
+    report_p.add_argument('--email', '-e', action='store_true', help='Email report')
     
     args = parser.parse_args()
     
-    if args.command is None:
+    if not args.command:
         print_banner()
         parser.print_help()
         return 0
     
     print_banner()
     
-    # Load configuration
     try:
         config = load_config()
     except FileNotFoundError:
-        print(f"{Fore.RED}❌ config.yaml not found. Run from project directory.{Style.RESET_ALL}")
+        print(f"{Fore.RED}❌ config.yaml not found{Style.RESET_ALL}")
         return 1
     
-    # Execute command
-    if args.command == 'scan':
-        return cmd_scan(config, args)
-    elif args.command == 'analyze':
-        return cmd_analyze(config, args)
-    elif args.command == 'report':
-        return cmd_report(config, args)
-    elif args.command == 'backtest':
-        return cmd_backtest(config, args)
-    elif args.command == 'paper':
-        return cmd_paper(config, args)
-    elif args.command == 'performance':
-        return cmd_performance(config, args)
+    commands = {
+        'scan': cmd_scan,
+        'analyze': cmd_analyze,
+        'premarket': cmd_premarket,
+        'paper': cmd_paper,
+        'backtest': cmd_backtest,
+        'risk': cmd_risk,
+        'performance': cmd_performance,
+        'verify': cmd_verify,
+    }
+    
+    if args.command in commands:
+        return commands[args.command](config, args)
     
     return 0
 
