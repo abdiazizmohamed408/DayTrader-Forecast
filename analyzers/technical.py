@@ -3,9 +3,187 @@ Technical Analysis Module.
 Calculates various technical indicators for stock analysis.
 """
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
+
+
+class MultiTimeframeAnalyzer:
+    """
+    Analyzes stocks across multiple timeframes.
+    
+    Checks 15min, 1hr, 4hr, and Daily for signal alignment.
+    """
+    
+    TIMEFRAMES = {
+        '15m': {'period': '5d', 'interval': '15m', 'weight': 0.15},
+        '1h': {'period': '30d', 'interval': '1h', 'weight': 0.25},
+        '4h': {'period': '60d', 'interval': '1h', 'weight': 0.25},  # Simulated 4h
+        '1d': {'period': '3mo', 'interval': '1d', 'weight': 0.35}
+    }
+    
+    def __init__(self, config: Dict):
+        """Initialize with configuration."""
+        self.config = config
+        self.single_tf_analyzer = TechnicalAnalyzer(config)
+    
+    def analyze_multi_timeframe(
+        self,
+        ticker: str,
+        fetcher
+    ) -> Dict:
+        """
+        Analyze a stock across multiple timeframes.
+        
+        Args:
+            ticker: Stock symbol
+            fetcher: DataFetcher instance
+            
+        Returns:
+            Dictionary with multi-timeframe analysis
+        """
+        results = {}
+        bullish_count = 0
+        bearish_count = 0
+        total_weight = 0
+        
+        for tf_name, tf_config in self.TIMEFRAMES.items():
+            # Fetch data for this timeframe
+            data = fetcher.get_stock_data(
+                ticker,
+                period=tf_config['period'],
+                interval=tf_config['interval']
+            )
+            
+            if data is None or len(data) < 50:
+                continue
+            
+            # For 4h simulation, resample from 1h data
+            if tf_name == '4h':
+                data = self._resample_to_4h(data)
+                if data is None or len(data) < 20:
+                    continue
+            
+            # Analyze
+            analysis = self.single_tf_analyzer.analyze(data)
+            if analysis is None:
+                continue
+            
+            # Determine bias for this timeframe
+            bias = self._determine_bias(analysis)
+            weight = tf_config['weight']
+            
+            results[tf_name] = {
+                'analysis': analysis,
+                'bias': bias,
+                'weight': weight
+            }
+            
+            total_weight += weight
+            if bias == 'BULLISH':
+                bullish_count += weight
+            elif bias == 'BEARISH':
+                bearish_count += weight
+        
+        if not results:
+            return None
+        
+        # Calculate alignment score (0-100)
+        # Higher score = more timeframes agree
+        alignment_score = 0
+        if bullish_count > bearish_count:
+            alignment_score = (bullish_count / total_weight) * 100
+            dominant_bias = 'BULLISH'
+        elif bearish_count > bullish_count:
+            alignment_score = (bearish_count / total_weight) * 100
+            dominant_bias = 'BEARISH'
+        else:
+            alignment_score = 50
+            dominant_bias = 'NEUTRAL'
+        
+        return {
+            'timeframes': results,
+            'alignment_score': alignment_score,
+            'dominant_bias': dominant_bias,
+            'bullish_weight': bullish_count,
+            'bearish_weight': bearish_count,
+            'timeframes_analyzed': len(results)
+        }
+    
+    def _resample_to_4h(self, data: pd.DataFrame) -> Optional[pd.DataFrame]:
+        """Resample 1h data to 4h bars."""
+        try:
+            resampled = data.resample('4h').agg({
+                'open': 'first',
+                'high': 'max',
+                'low': 'min',
+                'close': 'last',
+                'volume': 'sum'
+            }).dropna()
+            return resampled
+        except Exception:
+            return None
+    
+    def _determine_bias(self, analysis: Dict) -> str:
+        """Determine bullish/bearish/neutral bias from analysis."""
+        score = 0
+        
+        # RSI
+        rsi = analysis.get('rsi', 50)
+        if rsi < 30:
+            score += 2  # Oversold = bullish potential
+        elif rsi > 70:
+            score -= 2  # Overbought = bearish potential
+        elif rsi < 50:
+            score += 0.5
+        else:
+            score -= 0.5
+        
+        # Price vs MAs
+        if analysis.get('above_sma_short'):
+            score += 1
+        else:
+            score -= 1
+            
+        if analysis.get('above_sma_long'):
+            score += 1.5
+        else:
+            score -= 1.5
+        
+        # MACD
+        if analysis.get('macd_histogram', 0) > 0:
+            score += 1
+        else:
+            score -= 1
+        
+        # Determine bias
+        if score >= 2:
+            return 'BULLISH'
+        elif score <= -2:
+            return 'BEARISH'
+        else:
+            return 'NEUTRAL'
+    
+    def get_alignment_bonus(self, alignment_score: float) -> float:
+        """
+        Get probability bonus based on alignment score.
+        
+        Args:
+            alignment_score: Score from 0-100
+            
+        Returns:
+            Bonus to add to probability
+        """
+        if alignment_score >= 80:
+            return 10  # Strong alignment
+        elif alignment_score >= 70:
+            return 5  # Good alignment
+        elif alignment_score >= 60:
+            return 2  # Moderate alignment
+        elif alignment_score < 40:
+            return -5  # Conflicting signals
+        else:
+            return 0
 
 
 class TechnicalAnalyzer:

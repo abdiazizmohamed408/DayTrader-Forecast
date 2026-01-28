@@ -42,9 +42,17 @@ A Python-based technical analysis tool for day trading that scans stocks and gen
   - Entry price, target, and stop-loss levels
   - Risk/Reward ratio calculations
 
+- **📊 Prediction Tracking & Backtesting**
+  - Automatic logging of all predictions to SQLite database
+  - Outcome verification (WIN/LOSS based on target/stop-loss)
+  - Win rate and profit factor calculation
+  - Performance breakdown by ticker and indicator
+  - Adaptive weight optimization based on historical accuracy
+
 - **Reports**
   - Daily market scan reports
   - Individual stock analysis
+  - Performance accuracy reports
   - Markdown export
   - Email delivery (optional)
 
@@ -116,6 +124,77 @@ Options:
 
 ```bash
 python main.py report --email
+```
+
+### Verify Predictions
+
+Check if pending predictions hit their targets or stop-losses:
+
+```bash
+python main.py verify
+```
+
+Options:
+- `--days` or `-d`: Maximum days to track predictions (default: 10)
+
+```bash
+python main.py verify --days 5
+```
+
+### View Performance
+
+Display model accuracy and prediction statistics:
+
+```bash
+python main.py performance
+```
+
+Options:
+- `--save` or `-s`: Save full performance report to markdown file
+
+```bash
+python main.py performance --save
+```
+
+Example output:
+```
+📈 PREDICTION PERFORMANCE
+══════════════════════════════════════════════════════════════
+
+  Model Accuracy:
+  [████████████████████░░░░░░░░░░] 67.5%
+  27 wins / 13 losses
+
+  Key Metrics:
+    Total Predictions: 45
+    Avg Win: +3.42%
+    Avg Loss: -1.85%
+    Profit Factor: 2.45
+```
+
+### Optimize Weights
+
+Calculate optimal indicator weights based on historical performance:
+
+```bash
+python main.py optimize
+```
+
+Options:
+- `--apply` or `-a`: Show how to apply optimized weights
+- `--min-trades`: Minimum trades for weight adjustment (default: 10)
+- `--learning-rate`: Learning rate for adjustments (default: 0.1)
+
+```bash
+python main.py optimize --apply
+```
+
+### Adaptive Scanning
+
+Use performance-optimized weights when scanning:
+
+```bash
+python main.py scan --adaptive
 ```
 
 ## ⚙️ Configuration
@@ -194,6 +273,35 @@ EMAIL_TO=recipient@example.com
 - **Price near upper band:** Potentially overbought
 - **Price near lower band:** Potentially oversold
 
+## 📊 Prediction Tracking System
+
+The tool automatically tracks all predictions to measure accuracy over time.
+
+### How It Works
+
+1. **Logging**: When you run `scan` or `analyze`, BUY/SELL signals are logged to a SQLite database with:
+   - Entry price, target, stop-loss
+   - Probability score
+   - Individual indicator scores (RSI, MACD, etc.)
+
+2. **Verification**: Run `verify` to check if predictions hit their targets:
+   - **WIN**: Price reached target before stop-loss
+   - **LOSS**: Price hit stop-loss before target
+   - **EXPIRED**: Neither hit within the tracking period
+
+3. **Performance Analysis**: Run `performance` to see:
+   - Overall win rate
+   - Average profit/loss per trade
+   - Profit factor (gross profit / gross loss)
+   - Performance by ticker
+   - Indicator effectiveness
+
+4. **Adaptive Learning**: Run `optimize` to calculate which indicators are most predictive and adjust weights accordingly.
+
+### Database Location
+
+Predictions are stored in `./data/predictions.db` (SQLite).
+
 ## 📁 Project Structure
 
 ```
@@ -210,7 +318,13 @@ DayTrader-Forecast/
 │   └── signals.py       # Signal generation
 ├── data/
 │   ├── __init__.py
-│   └── fetcher.py       # Data fetching (yfinance)
+│   ├── fetcher.py       # Data fetching (yfinance)
+│   └── predictions.db   # SQLite database (auto-created)
+├── tracking/
+│   ├── __init__.py
+│   ├── database.py      # SQLite database handler
+│   ├── tracker.py       # Prediction logging & verification
+│   └── performance.py   # Performance analysis
 ├── reports/
 │   ├── __init__.py
 │   └── generator.py     # Report generation

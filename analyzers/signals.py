@@ -37,6 +37,9 @@ class TradingSignal:
         target_price: Suggested target price
         risk_reward_ratio: Calculated R:R ratio
         reasons: List of reasons supporting the signal
+        volume_confirmed: Whether volume > 1.5x average
+        timeframe_alignment: Multi-timeframe alignment score
+        market_context: Overall market condition
     """
     ticker: str
     signal_type: SignalType
@@ -47,10 +50,30 @@ class TradingSignal:
     target_price: Optional[float] = None
     risk_reward_ratio: Optional[float] = None
     reasons: List[str] = None
+    volume_confirmed: bool = False
+    timeframe_alignment: Optional[float] = None
+    market_context: Optional[str] = None
     
     def __post_init__(self):
         if self.reasons is None:
             self.reasons = []
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for serialization."""
+        return {
+            'ticker': self.ticker,
+            'signal_type': self.signal_type.value,
+            'probability': self.probability,
+            'sentiment': self.sentiment.value,
+            'entry_price': self.entry_price,
+            'stop_loss': self.stop_loss,
+            'target_price': self.target_price,
+            'risk_reward_ratio': self.risk_reward_ratio,
+            'reasons': self.reasons,
+            'volume_confirmed': self.volume_confirmed,
+            'timeframe_alignment': self.timeframe_alignment,
+            'market_context': self.market_context
+        }
 
 
 class SignalGenerator:
@@ -60,6 +83,9 @@ class SignalGenerator:
     Combines multiple indicators using weighted scoring to produce
     probability-based trading signals.
     """
+    
+    # Volume confirmation threshold (1.5x average)
+    VOLUME_THRESHOLD = 1.5
     
     def __init__(self, config: Dict):
         """
@@ -82,6 +108,25 @@ class SignalGenerator:
             'take_profit_percent': 4.0,
             'risk_reward_ratio': 2.0
         })
+        
+        # Optional: require volume confirmation for signals
+        self.require_volume = config.get('require_volume_confirmation', False)
+        
+        # Store last calculated scores for tracking
+        self.last_scores: Optional[Dict] = None
+    
+    def update_weights(self, new_weights: Dict[str, float]):
+        """
+        Update indicator weights (for adaptive learning).
+        
+        Args:
+            new_weights: Dictionary of indicator name to weight
+        """
+        self.weights.update(new_weights)
+    
+    def get_last_scores(self) -> Optional[Dict]:
+        """Get the indicator scores from the last signal generation."""
+        return self.last_scores
     
     def generate_signal(
         self, ticker: str, analysis: Dict
@@ -101,6 +146,7 @@ class SignalGenerator:
         
         # Calculate individual indicator scores
         scores = self._calculate_scores(analysis)
+        self.last_scores = scores  # Store for tracking
         
         # Calculate weighted probability
         bullish_score = sum(
