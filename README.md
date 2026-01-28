@@ -592,8 +592,13 @@ DayTrader-Forecast/
 │   ├── technical.py     # Technical indicators + Multi-TF
 │   ├── signals.py       # Signal generation
 │   ├── market.py        # Market context (SPY/QQQ)
-│   ├── events.py        # Economic event risk analyzer 🆕
-│   └── global_market.py # Global indicators analyzer 🆕
+│   ├── events.py        # Economic event risk analyzer
+│   └── global_market.py # Global indicators analyzer
+├── ml/                  # 🆕 AI/ML Module
+│   ├── __init__.py
+│   ├── price_predictor.py  # Chronos price prediction
+│   ├── sentiment.py        # Financial sentiment analysis
+│   └── ensemble.py         # ML ensemble integration
 ├── data/
 │   ├── __init__.py
 │   ├── fetcher.py       # Data fetching (yfinance)
@@ -620,6 +625,7 @@ DayTrader-Forecast/
 
 ## 🔧 Dependencies
 
+### Core (Required)
 - **yfinance** - Yahoo Finance data API
 - **pandas** - Data manipulation
 - **numpy** - Numerical computations
@@ -627,6 +633,35 @@ DayTrader-Forecast/
 - **python-dotenv** - Environment variables
 - **tabulate** - Table formatting
 - **colorama** - Colored terminal output
+
+### AI/ML Features (Optional)
+- **chronos-forecasting** - Amazon Chronos time series model
+- **transformers** - Hugging Face transformers library
+- **torch** - PyTorch deep learning framework
+- **sentencepiece** - Text tokenization
+
+#### Installing AI Features
+
+```bash
+# Install ML dependencies (~2GB download, first run downloads models)
+pip install chronos-forecasting transformers torch sentencepiece
+```
+
+**Hardware Requirements:**
+- CPU: Works on any modern CPU (slower inference)
+- GPU: NVIDIA GPU with CUDA for faster inference (optional)
+- RAM: 4GB+ recommended when running ML models
+- Disk: ~2GB for model weights
+
+**Disabling AI Features:**
+
+In `config.yaml`, set:
+```yaml
+ml:
+  enabled: false
+```
+
+Or simply don't install the ML dependencies - the tool will gracefully fall back to technical-only analysis.
 
 ## 📝 Example Output
 

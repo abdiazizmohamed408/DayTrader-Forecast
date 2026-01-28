@@ -237,7 +237,7 @@ class PricePredictor:
             momentum_10d = ((prices[-1] - prices[-10]) / prices[-10]) * 100
             
             # Calculate volatility for confidence
-            returns = np.diff(prices[-20:]) / prices[-21:-1]
+            returns = np.diff(prices[-21:]) / prices[-21:-1]
             volatility = np.std(returns) * 100 * np.sqrt(5)  # 5-day volatility
             
             # Simple linear extrapolation

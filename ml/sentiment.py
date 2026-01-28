@@ -166,17 +166,40 @@ class SentimentAnalyzer:
             headlines = []
             
             for item in news[:20]:  # Limit to 20 most recent
-                pub_time = item.get('providerPublishTime', 0)
-                if pub_time:
-                    news_date = datetime.fromtimestamp(pub_time)
-                    if news_date < cutoff:
-                        continue
+                # Handle both old and new yfinance news format
+                content = item.get('content', item)  # New format nests under 'content'
+                
+                # Get title
+                title = content.get('title', '')
+                if not title:
+                    continue
+                
+                # Get publish date (try different field names)
+                pub_time = None
+                pub_date_str = content.get('pubDate') or item.get('providerPublishTime')
+                
+                if pub_date_str:
+                    try:
+                        if isinstance(pub_date_str, (int, float)):
+                            pub_time = datetime.fromtimestamp(pub_date_str)
+                        else:
+                            # Parse ISO format date string
+                            pub_time = datetime.fromisoformat(pub_date_str.replace('Z', '+00:00'))
+                    except:
+                        pass
+                
+                # Get publisher
+                provider = content.get('provider', {})
+                if isinstance(provider, dict):
+                    publisher = provider.get('displayName', 'Unknown')
+                else:
+                    publisher = item.get('publisher', 'Unknown')
                 
                 headlines.append({
-                    'title': item.get('title', ''),
-                    'publisher': item.get('publisher', 'Unknown'),
-                    'date': datetime.fromtimestamp(pub_time).strftime('%Y-%m-%d') if pub_time else None,
-                    'link': item.get('link', '')
+                    'title': title,
+                    'publisher': publisher,
+                    'date': pub_time.strftime('%Y-%m-%d') if pub_time else None,
+                    'link': content.get('canonicalUrl', {}).get('url', '') if isinstance(content.get('canonicalUrl'), dict) else item.get('link', '')
                 })
             
             return headlines
