@@ -1,0 +1,59 @@
+# DayTrader-Forecast Configuration
+# Customize your watchlist and analysis settings
+
+# Default watchlist - popular day trading stocks
+watchlist:
+  - AAPL   # Apple
+  - MSFT   # Microsoft
+  - GOOGL  # Alphabet
+  - AMZN   # Amazon
+  - TSLA   # Tesla
+  - NVDA   # NVIDIA
+  - META   # Meta Platforms
+  - AMD    # Advanced Micro Devices
+  - SPY    # S&P 500 ETF
+  - QQQ    # Nasdaq 100 ETF
+
+# Technical analysis settings
+analysis:
+  # RSI settings
+  rsi_period: 14
+  rsi_overbought: 70
+  rsi_oversold: 30
+  
+  # MACD settings
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  
+  # Moving averages
+  sma_short: 20
+  sma_long: 50
+  ema_period: 12
+  
+  # Bollinger Bands
+  bb_period: 20
+  bb_std: 2
+  
+  # Volume analysis
+  volume_ma_period: 20
+
+# Signal weights for probability scoring (must sum to 1.0)
+weights:
+  rsi: 0.20
+  macd: 0.20
+  moving_averages: 0.15
+  bollinger_bands: 0.15
+  volume: 0.15
+  support_resistance: 0.15
+
+# Risk management
+risk:
+  stop_loss_percent: 2.0    # Default stop loss %
+  take_profit_percent: 4.0  # Default take profit %
+  risk_reward_ratio: 2.0    # Minimum R:R ratio
+
+# Report settings
+reports:
+  output_dir: "./output"
+  top_picks_count: 5
